@@ -22,7 +22,7 @@
 Однократная настройка: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ### Свой домен
-1. Создайте файл `academy/CNAME` с одной строкой — доменом, например `learn.vivaacademy.md`.
+1. Файл `academy/CNAME` уже содержит домен `learn.vivaacademy.md`.
 2. У регистратора домена добавьте DNS-запись:
    - для поддомена: `CNAME learn → shvtesim-sudo.github.io`
    - для основного домена: четыре записи `A` на `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`
