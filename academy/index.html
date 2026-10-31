@@ -27,7 +27,9 @@
       <nav id="nav" class="nav">
         <a href="#/" data-nav="home">Главная</a>
         <a href="#/courses" data-nav="courses">Курсы</a>
-        <a href="#/profile" data-nav="profile">Мой прогресс</a>
+        <a href="#/profile" data-nav="profile">Личный кабинет</a>
+        <a href="#/admin" data-nav="admin" hidden>Руководителю</a>
+        <button class="nav-logout" type="button" hidden>Выйти</button>
         <button class="theme-btn" type="button" aria-label="Сменить тему"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
       </nav>
     </div>
@@ -41,10 +43,11 @@
         <div class="logo logo--footer"><span class="logo__text">Viva<b>Academy</b></span></div>
         <p class="muted">Образовательная платформа для фармацевтов и провизоров.</p>
       </div>
-      <p class="disclaimer">Материалы носят образовательный характер, основаны на общепринятых международных рекомендациях и не заменяют инструкцию по медицинскому применению, клинические протоколы и требования законодательства вашей страны. Прогресс сохраняется только в этом браузере.</p>
+      <p class="disclaimer">Материалы носят образовательный характер, основаны на общепринятых международных рекомендациях и не заменяют инструкцию по медицинскому применению, клинические протоколы и требования законодательства вашей страны.</p>
     </div>
   </footer>
 
+  <dialog id="modal" class="modal"></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="js/data.js"></script>
