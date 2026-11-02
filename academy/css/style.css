@@ -1,64 +1,82 @@
 :root {
-  --bg: #f4f8fa;
+  --bg: #f7f7f7;
   --surface: #ffffff;
-  --surface-2: #eaf2f5;
-  --text: #17313d;
-  --muted: #5b7380;
-  --border: #d7e4ea;
-  --primary: #13708a;
-  --primary-strong: #0d5568;
-  --primary-soft: #dff0f4;
+  --surface-2: #f2f3f6;
+  --text: #333333;
+  --heading: #1f1f1f;
+  --muted: #6b6b6b;
+  --border: #e5e5e5;
+  --brand: #eb303a;
+  --primary: #d1232e;
+  --primary-strong: #ad1b25;
+  --primary-soft: #fdecee;
   --on-primary: #ffffff;
-  --accent: #23935f;
-  --accent-soft: #e0f3e9;
-  --warn: #b5532a;
-  --warn-soft: #fbece4;
-  --danger: #b8333b;
-  --shadow: 0 1px 2px rgba(16, 50, 64, .06), 0 8px 24px rgba(16, 50, 64, .06);
-  --radius: 16px;
-  --font-head: 'Montserrat', system-ui, sans-serif;
-  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --navy: #001f7a;
+  --navy-soft: #e9edf8;
+  --accent: #23874f;
+  --accent-soft: #e5f4eb;
+  --warn: #b4540f;
+  --warn-soft: #fdf1e6;
+  --danger: #c4161c;
+  --hero-bg: linear-gradient(115deg, #f6f1ea 0%, #fbf9f6 55%, #efe9e1 100%);
+  --footer-bg: #333333;
+  --shadow: 0 2px 4px rgba(0, 0, 0, .04), 0 10px 28px rgba(0, 0, 0, .07);
+  --radius: 8px;
+  --font-head: 'Montserrat', Arial, sans-serif;
+  --font-body: 'Montserrat', Arial, sans-serif;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0e1a20;
-    --surface: #14242c;
-    --surface-2: #1b2f39;
-    --text: #e3eef2;
-    --muted: #94acb7;
-    --border: #2a414c;
-    --primary: #4bb3cc;
-    --primary-strong: #7fd0e2;
-    --primary-soft: #183a46;
-    --on-primary: #06222b;
-    --accent: #4cc48a;
-    --accent-soft: #173a2b;
-    --warn: #f0976b;
-    --warn-soft: #3d261c;
-    --danger: #f07a80;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+    --bg: #121318;
+    --surface: #1b1d24;
+    --surface-2: #242731;
+    --text: #e8e8ec;
+    --heading: #f4f4f6;
+    --muted: #a5a8b3;
+    --border: #30333e;
+    --brand: #ff5a62;
+    --primary: #ff5a62;
+    --primary-strong: #ff8086;
+    --primary-soft: #3b1d21;
+    --on-primary: #1b0a0c;
+    --navy: #9db0ff;
+    --navy-soft: #20263d;
+    --accent: #52c785;
+    --accent-soft: #16301f;
+    --warn: #f0a062;
+    --warn-soft: #3a2616;
+    --danger: #ff7b80;
+    --hero-bg: linear-gradient(115deg, #1d1b1a 0%, #18191d 55%, #1f1c1a 100%);
+    --footer-bg: #0c0d10;
+    --shadow: 0 2px 4px rgba(0, 0, 0, .3), 0 10px 28px rgba(0, 0, 0, .3);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0e1a20;
-  --surface: #14242c;
-  --surface-2: #1b2f39;
-  --text: #e3eef2;
-  --muted: #94acb7;
-  --border: #2a414c;
-  --primary: #4bb3cc;
-  --primary-strong: #7fd0e2;
-  --primary-soft: #183a46;
-  --on-primary: #06222b;
-  --accent: #4cc48a;
-  --accent-soft: #173a2b;
-  --warn: #f0976b;
-  --warn-soft: #3d261c;
-  --danger: #f07a80;
-  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+  --bg: #121318;
+  --surface: #1b1d24;
+  --surface-2: #242731;
+  --text: #e8e8ec;
+  --heading: #f4f4f6;
+  --muted: #a5a8b3;
+  --border: #30333e;
+  --brand: #ff5a62;
+  --primary: #ff5a62;
+  --primary-strong: #ff8086;
+  --primary-soft: #3b1d21;
+  --on-primary: #1b0a0c;
+  --navy: #9db0ff;
+  --navy-soft: #20263d;
+  --accent: #52c785;
+  --accent-soft: #16301f;
+  --warn: #f0a062;
+  --warn-soft: #3a2616;
+  --danger: #ff7b80;
+  --hero-bg: linear-gradient(115deg, #1d1b1a 0%, #18191d 55%, #1f1c1a 100%);
+  --footer-bg: #0c0d10;
+  --shadow: 0 2px 4px rgba(0, 0, 0, .3), 0 10px 28px rgba(0, 0, 0, .3);
   color-scheme: dark;
 }
 
@@ -414,3 +432,135 @@ code { background: var(--surface-2); padding: 1px 6px; border-radius: 6px; font-
 .modal__body h2 { margin-bottom: 16px; }
 .danger-zone { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 .cred-list { max-height: 260px; overflow-y: auto; padding-left: 1.2em; font-size: .92rem; }
+
+/* ═════════ Фирменный стиль «Вивафарм» ═════════
+   Красный #EB303A и тёмно-синий #001F7A из логотипа, Montserrat,
+   строгие формы и прописные кнопки — как на vivafarm.md. */
+
+body { font-size: 15px; line-height: 1.65; }
+h1, h2, h3 { color: var(--heading); font-weight: 700; letter-spacing: 0; }
+h1 { font-size: clamp(1.7rem, 4vw, 2.5rem); }
+a { color: var(--primary); }
+:focus-visible { outline-color: var(--brand); }
+
+/* Шапка */
+.topbar { background: var(--surface); backdrop-filter: none; }
+.topbar__inner { height: 76px; }
+.logo { gap: 14px; }
+.logo__img { height: 40px; width: auto; display: block; }
+.logo__divider { width: 1px; height: 34px; background: var(--border); }
+.logo__text { font-size: 1.05rem; font-weight: 700; line-height: 1.1; color: var(--navy); }
+.logo__text b { color: var(--brand); }
+.logo__text small {
+  display: block; font-size: .62rem; font-weight: 500; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .12em; margin-top: 3px;
+}
+@media (max-width: 420px) { .logo__divider, .logo__text small { display: none; } .logo { gap: 10px; } .logo__img { height: 34px; } }
+.nav a, .nav-logout { color: var(--text); font-size: .9rem; font-weight: 500; border-radius: 0; padding: 8px 12px; }
+.nav a:hover, .nav-logout:hover { background: none; color: var(--brand); }
+.nav a.active { background: none; color: var(--brand); box-shadow: inset 0 -2px 0 var(--brand); }
+.theme-btn { border-radius: 4px; }
+@media (max-width: 720px) {
+  .nav { top: 76px; }
+  .nav a.active { box-shadow: inset 3px 0 0 var(--brand); }
+}
+
+/* Кнопки */
+.btn {
+  border-radius: 4px; text-transform: uppercase; letter-spacing: .08em;
+  font: 600 .78rem var(--font-body); padding: 15px 26px;
+}
+.btn--primary { background: var(--primary); color: var(--on-primary); }
+.btn--primary:hover { background: var(--primary-strong); }
+.btn--ghost { background: transparent; color: var(--primary); border-color: color-mix(in srgb, var(--primary) 45%, transparent); }
+.btn--ghost:hover { background: var(--primary-soft); }
+.btn--sm { padding: 10px 16px; font-size: .72rem; border-radius: 4px; }
+.btn--danger { background: var(--danger); }
+
+/* Первый экран */
+.hero { background: var(--hero-bg); padding: 64px 0 56px; margin-bottom: 40px; border-bottom: 1px solid var(--border); }
+.eyebrow {
+  background: none; padding: 0; border-radius: 0; color: var(--muted);
+  font-weight: 500; font-size: .74rem; letter-spacing: .14em; margin-bottom: 18px;
+}
+.hero p.lead { font-size: 1.12rem; color: var(--text); }
+.hero__card { border-radius: var(--radius); box-shadow: var(--shadow); border-color: transparent; }
+.mini-list li { border-radius: 6px; }
+.stat { border-radius: var(--radius); }
+.stat b { color: var(--navy); }
+
+/* Карточки курсов */
+.card { border-radius: 6px; }
+.card:hover { transform: none; border-color: var(--brand); box-shadow: var(--shadow); }
+.card__icon { border-radius: 6px; }
+.badge {
+  border-radius: 3px; background: var(--navy-soft); color: var(--navy);
+  text-transform: uppercase; letter-spacing: .06em; font-size: .66rem; padding: 4px 8px;
+}
+.badge--done { background: var(--accent-soft); color: var(--accent); }
+.badge--warn { background: var(--warn-soft); color: var(--warn); }
+
+/* Фильтры — вкладки с красным подчёркиванием, как «Хит / Советуем / Новинка» */
+.filters { gap: 4px 22px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+.chip {
+  border: 0; border-radius: 0; background: none; color: var(--muted);
+  padding: 10px 0; font-size: .9rem; font-weight: 500;
+}
+.chip:hover { color: var(--text); }
+.chip[aria-pressed="true"] { background: none; color: var(--heading); box-shadow: inset 0 -2px 0 var(--brand); }
+.search { border-radius: 4px; }
+
+.how div { border-radius: var(--radius); }
+.how div::before { background: var(--primary-soft); color: var(--brand); border-radius: 4px; }
+
+/* Курс, урок, тест */
+.course-head, .lesson, .quiz { border-radius: var(--radius); }
+.course-head aside { border-radius: 6px; }
+.lesson-list a { border-radius: 6px; }
+.lesson-list a:hover { border-color: var(--brand); }
+.quiz-link .lesson-num { background: var(--primary-soft); color: var(--brand); }
+.note { background: var(--navy-soft); border-left-color: var(--navy); border-radius: 4px; }
+.note.warn { background: var(--primary-soft); border-left-color: var(--brand); }
+.flags li::marker { color: var(--brand); }
+.step { border-radius: 6px; }
+.step b { color: var(--navy); }
+.dialog { border-radius: 6px; }
+.dialog em { color: var(--navy); }
+.pair { border-radius: 6px; }
+.pair b { color: var(--navy); }
+.takeaways { border-radius: 6px; }
+.option { border-radius: 6px; border-width: 1px; }
+.option:hover:not([disabled]) { border-color: var(--brand); }
+.option.correct { border-width: 2px; }
+.option.wrong { border-width: 2px; background: var(--primary-soft); }
+.result__score { color: var(--navy); }
+.panel, .modal { border-radius: var(--radius); }
+.field input, .field textarea, .field select, .toolbar select, .toolbar .search { border-radius: 4px; }
+
+/* Сертификат */
+.cert { border-color: #001f7a; outline-color: #eb303a; }
+.cert h1 { color: #001f7a; }
+.cert .logo__img { height: 54px; }
+.cert .name { border-bottom-color: #eb303a; color: #1f1f1f; }
+
+/* Тёмная тема: логотип на светлой подложке */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .topbar .logo__img { background: #fff; border-radius: 4px; padding: 3px 5px; }
+}
+:root[data-theme="dark"] .topbar .logo__img { background: #fff; border-radius: 4px; padding: 3px 5px; }
+
+/* Подвал как на vivafarm.md */
+.footer { background: var(--footer-bg); border-top: 0; color: #bdbdbd; padding: 48px 0 28px; }
+.footer__inner { grid-template-columns: repeat(3, minmax(0, 1fr)) 1.4fr; gap: 28px 32px; }
+.footer__col { display: grid; gap: 10px; align-content: start; }
+.footer h4 { margin: 0 0 6px; color: #fff; font: 700 .8rem var(--font-head); text-transform: uppercase; letter-spacing: .06em; }
+.footer a { color: #bdbdbd; text-decoration: none; font-size: .88rem; }
+.footer a:hover { color: #fff; }
+.footer__contacts span { font-size: .88rem; }
+.footer .disclaimer { color: #9a9a9a; font-size: .8rem; margin: 0; }
+.footer__copy { grid-column: 1 / -1; margin: 12px 0 0; padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, .12); color: #9a9a9a; font-size: .82rem; }
+@media (max-width: 860px) { .footer__inner { grid-template-columns: 1fr 1fr; } .footer .disclaimer { grid-column: 1 / -1; } }
+@media (max-width: 480px) { .footer__inner { grid-template-columns: 1fr; } }
+.cert .logo__text { color: #001f7a; }
+.cert .logo__text b { color: #eb303a; }
+.cert .logo__divider { background: #d9d9d9; }

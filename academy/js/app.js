@@ -244,7 +244,7 @@
     const totalQ = COURSES.reduce((s, c) => s + c.quiz.length, 0);
     const inProgress = COURSES.filter((c) => courseProgress(c) > 0 && !isPassed(c));
     const featured = (inProgress.length ? inProgress : COURSES).slice(0, 3);
-    const hello = mode === 'server' && user ? `Здравствуйте, ${esc(user.name.split(' ')[0])}!` : 'Обучение для фармацевтов и провизоров';
+    const hello = mode === 'server' && user ? `Здравствуйте, ${esc(user.name.split(' ')[0])}!` : 'Viva Academy · сеть аптек «Вивафарм»';
     return `
       ${demoBanner()}
       <section class="hero">
@@ -559,7 +559,7 @@
       <div class="wrap cert-wrap">
         <div class="crumbs no-print"><a href="#/profile">Личный кабинет</a> / Сертификат</div>
         <div class="cert">
-          <div class="logo" style="justify-content:center"><span class="logo__text">Viva<b>Academy</b></span></div>
+          <div class="logo" style="justify-content:center"><img class="logo__img" src="img/logo-vivafarm.svg" alt="Вивафарм" width="125" height="54"><span class="logo__divider" aria-hidden="true"></span><span class="logo__text">Viva<b>Academy</b></span></div>
           <h1>Сертификат</h1>
           <p>подтверждает, что</p>
           ${nameBlock}
