@@ -798,9 +798,9 @@
   }
 
   function parseRows(text) {
-    return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+    return text.replace(/^\uFEFF/, '').split(/\r?\n/).map((line) => line.replace(/^\uFEFF/, '').trim()).filter(Boolean)
       .map((line) => line.split(line.includes('\t') ? '\t' : line.includes(';') ? ';' : ',').map((s) => s.trim().replace(/^"|"$/g, '')))
-      .filter((cols) => !/^(фио|имя|name)$/i.test(cols[0]))
+      .filter((cols) => !/^(фио|ф\.и\.о\.|имя|name|фамилия.*)$/i.test(cols[0]))
       .map(([name, login, branch, position, password]) => ({ name, login, branch, position, password }));
   }
 

@@ -236,6 +236,8 @@ switch ($action) {
 
     case 'admin_import':
         require_admin();
+        // Хеширование паролей для сотен сотрудников занимает время
+        @set_time_limit(300);
         $rows = input()['rows'] ?? [];
         if (!is_array($rows) || count($rows) > 2000) {
             fail(422, 'invalid', 'Некорректный список.');
