@@ -410,7 +410,7 @@
         </div>
         <div class="law-search">
           <input id="law-q" class="search" type="search" autocomplete="off" aria-label="Поиск по нормативной базе"
-            placeholder="${law.sec === 'acc' ? 'Например: лимит остатка наличных в кассе' : 'Например: можно ли вернуть лекарство'}" value="${esc(law.q)}">
+            placeholder="${{ acc: 'Например: лимит остатка наличных в кассе', local: 'Например: подарки от поставщиков' }[law.sec] || 'Например: можно ли вернуть лекарство'}" value="${esc(law.q)}">
         </div>
         <div class="law-hints"><span class="muted small">Частые вопросы:</span>
           ${(L.HINTS[law.sec] || []).map((h) => `<button type="button" class="law-hint" data-law-hint="${esc(h)}">${esc(h)}</button>`).join('')}
@@ -435,8 +435,13 @@
     const list = L.search(law.sec, law.cat, qt);
     document.getElementById('law-count').textContent = raw ? (list.length ? `Найдено документов: ${list.length}` : '') : `Документов: ${list.length}`;
     if (!list.length) {
-      const other = L.SECTIONS.filter((x) => x.key !== law.sec)[0];
-      const inOther = raw ? L.search(other.key, null, qt).length : 0;
+      // Предлагаем подраздел с самым точным совпадением, а не первый попавшийся
+      const others = L.SECTIONS.filter((x) => x.key !== law.sec).map((x) => {
+        const found = raw ? L.search(x.key, null, qt) : [];
+        return { x, n: found.length, top: found.length ? found[0].s : 0 };
+      });
+      const best = others.sort((a, b) => b.top - a.top || b.n - a.n)[0];
+      const other = best.x, inOther = best.n;
       box.innerHTML = `<div class="empty">По запросу «${esc(raw)}» здесь документов не нашлось. ${inOther
         ? `Но в подразделе «${esc(other.label)}» найдено: ${inOther}. <button type="button" class="link-btn law-other" data-law-sec="${other.key}" data-keep-q="1">Показать</button>`
         : 'Попробуйте другое слово или задайте вопрос ответственному сотруднику.'}</div>`;
@@ -446,16 +451,18 @@
     box.innerHTML = list.map(({ d }) => {
       const meta = [d.kind, d.num, d.date ? (/^\d/.test(d.date) && d.date.length === 10 ? 'от ' + d.date : d.date) : ''].filter(Boolean).join(' ');
       const cats = d.cat.filter((c) => L.catOf(c).sec === law.sec).map((c) => L.catOf(c).label).join(', ');
-      const url = /^https:\/\//.test(d.url || '') ? d.url : '';
+      const url = /^(https:\/\/|#\/)/.test(d.url || '') ? d.url : '';
+      const internal = url.indexOf('#/') === 0;
       return `<article class="law-doc">
         <p class="law-doc__meta"><b>${esc(cats)}</b> · ${esc(meta)}</p>
         <h3>${L.highlight(d.title, hl)}</h3>
-        <p class="small muted">${law.sec === 'acc' ? 'Что это значит на практике' : 'Что это значит для фармацевта'}</p>
+        <p class="small muted">${law.sec === 'pharm' ? 'Что это значит для фармацевта' : 'Что это значит на практике'}</p>
         <p>${L.highlight(d.means, hl)}</p>
         ${d.warn ? `<p class="law-doc__warn">${esc(d.warn)}</p>` : ''}
         <div class="law-doc__foot">
-          ${url ? `<a class="btn btn--primary btn--sm" href="${esc(url)}" target="_blank" rel="noopener">Открыть документ</a>` : '<span class="badge">Ссылка уточняется</span>'}
-          <span class="small muted">${d.checked ? 'Редакция сверена: ' + esc(d.checked) : 'Редакция не сверена'}</span>
+          ${url ? (internal ? `<a class="btn btn--primary btn--sm" href="${esc(url)}">Изучить и пройти тест</a>`
+            : `<a class="btn btn--primary btn--sm" href="${esc(url)}" target="_blank" rel="noopener">Открыть документ</a>`) : '<span class="badge">Ссылка уточняется</span>'}
+          ${internal ? '' : `<span class="small muted">${d.checked ? 'Редакция сверена: ' + esc(d.checked) : 'Редакция не сверена'}</span>`}
         </div>
       </article>`;
     }).join('');
@@ -1156,7 +1163,7 @@
     else if (page === 'login' && mode === 'server') html = viewLogin();
     else if (page === 'register' && mode === 'server' && selfRegister) html = viewRegister();
     else if (page === 'courses') html = viewCourses();
-    else if (page === 'law') { html = viewLaw(id === 'buh' ? 'acc' : (id === 'pharm' ? 'pharm' : null)); }
+    else if (page === 'law') { html = viewLaw({ buh: 'acc', pharm: 'pharm', local: 'local' }[id] || null); }
     else if (page === 'team' && teamReady()) html = viewTeam();
     else if (page === 'profile') html = viewProfile();
     else if (page === 'admin' && isAdmin()) html = viewAdmin();
