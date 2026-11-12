@@ -265,7 +265,8 @@ switch ($action) {
               [$login, $name, mb_substr(trim((string)($row['branch'] ?? '')), 0, 120),
                mb_substr(trim((string)($row['position'] ?? '')), 0, 120), 'user',
                password_hash($password, PASSWORD_DEFAULT), now()]);
-            $created[] = ['login' => $login, 'name' => $name, 'password' => $password];
+            $created[] = ['login' => $login, 'name' => $name, 'password' => $password,
+                          'branch' => mb_substr(trim((string)($row['branch'] ?? '')), 0, 120)];
         }
         db()->commit();
         json_out(['created' => $created, 'skipped' => $skipped]);

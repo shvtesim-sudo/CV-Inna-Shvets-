@@ -564,3 +564,27 @@ a { color: var(--primary); }
 .cert .logo__text { color: #001f7a; }
 .cert .logo__text b { color: #eb303a; }
 .cert .logo__divider { background: #d9d9d9; }
+
+/* Листы доступа по аптекам */
+.sheet-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; border-top: 1px solid var(--border); }
+.sheet-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.sheet-list small { display: block; color: var(--muted); }
+.sheet-list .btn-row { gap: 6px; }
+#print-sheets { display: none; }
+@media print {
+  @page { margin: 15mm; }
+  body.printing > *:not(#print-sheets) { display: none !important; }
+  body.printing #print-sheets { display: block; }
+  .sheet { page-break-after: always; break-after: page; color: #000; font-size: 11pt; }
+  .sheet:last-child { page-break-after: auto; break-after: auto; }
+  .sheet__head { display: flex; align-items: center; gap: 14px; border-bottom: 2px solid #eb303a; padding-bottom: 8px; margin-bottom: 10px; }
+  .sheet__head b { display: block; font-size: 14pt; color: #001f7a; }
+  .sheet__head span { color: #444; }
+  .sheet__steps { margin: 0 0 12px; padding-left: 1.3em; }
+  .sheet__table { width: 100%; border-collapse: collapse; }
+  .sheet__table th, .sheet__table td { border: 1px solid #999; padding: 5px 8px; text-align: left; }
+  .sheet__table th { background: #f2f2f2; }
+  .sheet__table td:nth-child(3), .sheet__table td:nth-child(4) { font-family: 'Courier New', monospace; font-size: 11.5pt; }
+  .sheet__table tr { page-break-inside: avoid; }
+  .sheet__note { margin-top: 10px; font-size: 9pt; color: #444; }
+}
