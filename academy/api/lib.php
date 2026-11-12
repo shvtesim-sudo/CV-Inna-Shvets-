@@ -104,7 +104,61 @@ function schema(): array
             ip VARCHAR(45) NOT NULL,
             at DATETIME NOT NULL
         )$tail",
+        // Результаты тестов, пройденных до запуска Академии (импорт со старого сайта тестирования)
+        "CREATE TABLE IF NOT EXISTS external_results (
+            user_id $ref NOT NULL,
+            test VARCHAR(200) NOT NULL,
+            score DECIMAL(5,2) NOT NULL DEFAULT 0,
+            correct INT NOT NULL DEFAULT 0,
+            total INT NOT NULL DEFAULT 0,
+            passed TINYINT NOT NULL DEFAULT 0,
+            taken_at DATETIME NULL,
+            attempts INT NOT NULL DEFAULT 1,
+            cert_no VARCHAR(80) NOT NULL DEFAULT '',
+            PRIMARY KEY (user_id, test),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )$tail",
     ];
+}
+
+// Новые таблицы для уже установленной платформы: создаются один раз при первом запросе
+const SCHEMA_VERSION = '2';
+function migrate(): void
+{
+    try {
+        if (setting('schema_version') === SCHEMA_VERSION) {
+            return;
+        }
+    } catch (Throwable $e) {
+        return; // платформа ещё не установлена — таблицы создаст установщик
+    }
+    try {
+        foreach (schema() as $sql) {
+            db()->exec($sql);
+        }
+        set_setting('schema_version', SCHEMA_VERSION);
+    } catch (Throwable $e) {
+        // Сайт продолжает работать; без новой таблицы недоступен только импорт старых результатов
+        error_log('[viva-academy] migrate: ' . $e->getMessage());
+    }
+}
+
+function external_results(int $uid): array
+{
+    $out = [];
+    try {
+        $rows = q('SELECT * FROM external_results WHERE user_id = ? ORDER BY taken_at DESC', [$uid])->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
+    foreach ($rows as $r) {
+        $out[] = [
+            'test' => $r['test'], 'score' => (float)$r['score'], 'correct' => (int)$r['correct'],
+            'total' => (int)$r['total'], 'passed' => (bool)$r['passed'], 'attempts' => (int)$r['attempts'],
+            'date' => $r['taken_at'] ? strtotime($r['taken_at'] . ' UTC') * 1000 : null, 'certNo' => $r['cert_no'],
+        ];
+    }
+    return $out;
 }
 
 function setting(string $name, string $default = ''): string
@@ -257,5 +311,5 @@ function user_progress(int $uid): array
             'certId' => $r['cert_id'],
         ];
     }
-    return ['lessons' => (object)$lessons, 'quiz' => (object)$quiz];
+    return ['lessons' => (object)$lessons, 'quiz' => (object)$quiz, 'external' => external_results($uid)];
 }

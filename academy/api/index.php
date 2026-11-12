@@ -11,6 +11,7 @@ set_exception_handler(function (Throwable $e) {
 });
 
 start_session();
+migrate();
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -192,6 +193,18 @@ switch ($action) {
                 'certId' => $r['cert_id'],
             ];
         }
+        $ext = [];
+        try {
+            $extRows = q('SELECT user_id, test, score, passed, taken_at, attempts FROM external_results')->fetchAll();
+        } catch (Throwable $e) {
+            $extRows = [];
+        }
+        foreach ($extRows as $r) {
+            $ext[$r['user_id']][] = [
+                'test' => $r['test'], 'score' => (float)$r['score'], 'passed' => (bool)$r['passed'],
+                'attempts' => (int)$r['attempts'], 'date' => $r['taken_at'],
+            ];
+        }
         $users = [];
         foreach (q('SELECT * FROM users ORDER BY name') as $r) {
             $users[] = public_user($r) + [
@@ -200,6 +213,7 @@ switch ($action) {
                 'lastLogin' => $r['last_login'],
                 'lessons' => (object)($lessons[$r['id']] ?? []),
                 'quiz' => (object)($quiz[$r['id']] ?? []),
+                'external' => $ext[$r['id']] ?? [],
             ];
         }
         json_out(['users' => $users, 'inviteCode' => setting('invite_code')]);
@@ -278,6 +292,49 @@ switch ($action) {
         db()->commit();
         json_out(['created' => $created, 'skipped' => $skipped]);
 
+    case 'admin_import_results':
+        // Результаты со старого сайта тестирования: лучшая попытка сотрудника по каждому тесту.
+        // Повторный импорт того же файла ничего не дублирует, а более высокий балл заменяет прежний.
+        require_admin();
+        @set_time_limit(300);
+        $rows = input()['rows'] ?? [];
+        if (!is_array($rows) || count($rows) > 5000) {
+            fail(422, 'invalid', 'Некорректный список.');
+        }
+        $ids = [];
+        foreach (q('SELECT id, login FROM users') as $u) {
+            $ids[$u['login']] = (int)$u['id'];
+        }
+        $added = 0; $updated = 0; $same = 0; $unknown = [];
+        db()->beginTransaction();
+        foreach ($rows as $row) {
+            $login = mb_strtolower(trim((string)($row['login'] ?? '')));
+            $test = mb_substr(trim((string)($row['test'] ?? '')), 0, 200);
+            if ($test === '' || !isset($ids[$login])) {
+                $unknown[$login] = true;
+                continue;
+            }
+            $score = max(0, min(100, (float)($row['score'] ?? 0)));
+            $date = strtotime((string)($row['date'] ?? ''));
+            $vals = [$score, (int)($row['correct'] ?? 0), (int)($row['total'] ?? 0), !empty($row['passed']) ? 1 : 0,
+                     $date ? gmdate('Y-m-d H:i:s', $date) : null, max(1, (int)($row['attempts'] ?? 1)),
+                     mb_substr(trim((string)($row['cert'] ?? '')), 0, 80)];
+            $prev = q('SELECT score FROM external_results WHERE user_id = ? AND test = ?', [$ids[$login], $test])->fetchColumn();
+            if ($prev === false) {
+                q('INSERT INTO external_results (score, correct, total, passed, taken_at, attempts, cert_no, user_id, test)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', array_merge($vals, [$ids[$login], $test]));
+                $added++;
+            } elseif ($score > (float)$prev) {
+                q('UPDATE external_results SET score = ?, correct = ?, total = ?, passed = ?, taken_at = ?, attempts = ?, cert_no = ?
+                   WHERE user_id = ? AND test = ?', array_merge($vals, [$ids[$login], $test]));
+                $updated++;
+            } else {
+                $same++;
+            }
+        }
+        db()->commit();
+        json_out(['added' => $added, 'updated' => $updated, 'unchanged' => $same, 'unknownLogins' => array_keys($unknown)]);
+
     case 'admin_reset_progress':
         require_admin();
         $id = (int)(input()['id'] ?? 0);
@@ -293,6 +350,7 @@ switch ($action) {
         }
         q('DELETE FROM lesson_progress WHERE user_id = ?', [$id]);
         q('DELETE FROM quiz_results WHERE user_id = ?', [$id]);
+        q('DELETE FROM external_results WHERE user_id = ?', [$id]);
         q('DELETE FROM users WHERE id = ?', [$id]);
         json_out(['ok' => true]);
 
@@ -320,7 +378,15 @@ switch ($action) {
         header('Content-Disposition: attachment; filename="viva-academy-progress-' . gmdate('Y-m-d') . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF"); // BOM, чтобы Excel открыл кириллицу
-        $head = ['ФИО', 'Логин', 'Аптека / филиал', 'Должность', 'Последний вход', 'Общий прогресс, %', 'Сертификатов'];
+        $extPassed = [];
+        try {
+            foreach (q('SELECT user_id, COUNT(*) AS n FROM external_results WHERE passed = 1 GROUP BY user_id')->fetchAll() as $r) {
+                $extPassed[$r['user_id']] = (int)$r['n'];
+            }
+        } catch (Throwable $e) {
+            // таблицы нет — колонка останется пустой
+        }
+        $head = ['ФИО', 'Логин', 'Аптека / филиал', 'Должность', 'Последний вход', 'Общий прогресс, %', 'Сертификатов', 'Сдано тестов до запуска Академии'];
         foreach ($list as $c) {
             $head[] = $c['title'];
         }
@@ -343,7 +409,7 @@ switch ($action) {
             };
             fputcsv($out, array_merge(array_map($safe, [
                 $u['name'], $u['login'], $u['branch'], $u['position'], $u['last_login'] ?? '',
-            ]), [round($sum / max(1, count($list))), $certs], $cells), ';');
+            ]), [round($sum / max(1, count($list))), $certs, $extPassed[$u['id']] ?? 0], $cells), ';');
         }
         exit;
 
