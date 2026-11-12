@@ -266,7 +266,7 @@
     const totalQ = COURSES.reduce((s, c) => s + c.quiz.length, 0);
     const inProgress = COURSES.filter((c) => courseProgress(c) > 0 && !isPassed(c));
     const featured = (inProgress.length ? inProgress : COURSES).slice(0, 3);
-    const hello = mode === 'server' && user ? `Здравствуйте, ${esc(user.name.split(' ')[0])}!` : 'Viva Academy · сеть аптек «Вивафарм»';
+    const hello = mode === 'server' && user ? `Здравствуйте, ${esc(user.name.split(' ')[0])}!` : 'ВИВААКАДЕМИЯ · Вивафарм';
     return `
       ${demoBanner()}
       <section class="hero">
@@ -360,9 +360,9 @@
         </div>
         <div class="pl-diagram" id="pl-diagram" role="img" aria-label="Четыре пересекающихся круга: знания, опыт, консультация и забота. В центре — доверие.">
           <svg viewBox="0 0 520 520" aria-hidden="true">
-            <defs><linearGradient id="plCore" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#eb303a"/><stop offset="100%" stop-color="#001f7a"/></linearGradient></defs>
+            <defs><linearGradient id="plCore" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3fa36b"/><stop offset="100%" stop-color="#17324d"/></linearGradient></defs>
             ${ring(1, 260, 170, 260, 92, 112)}${ring(2, 170, 260, 108, 256, 276)}${ring(3, 350, 260, 412, 256, 276)}${ring(4, 260, 350, 260, 424, 444)}
-            <circle class="pl-halo" cx="260" cy="260" r="48" fill="#eb303a" opacity=".25"/>
+            <circle class="pl-halo" cx="260" cy="260" r="48" fill="#3fa36b" opacity=".3"/>
             <g class="pl-core"><circle cx="260" cy="260" r="42" fill="url(#plCore)"/><text x="260" y="265" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">Доверие</text></g>
           </svg>
         </div>
@@ -715,7 +715,7 @@
               <circle cx="70" cy="70" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="12"/>
               <circle cx="70" cy="70" r="${r}" fill="none" stroke="var(--accent)" stroke-width="12" stroke-linecap="round"
                 stroke-dasharray="${circ}" stroke-dashoffset="${circ * (1 - overall / 100)}" transform="rotate(-90 70 70)"/>
-              <text x="70" y="78" text-anchor="middle" font-size="26" font-weight="700" fill="var(--text)" font-family="Montserrat, sans-serif">${overall}%</text>
+              <text x="70" y="78" text-anchor="middle" font-size="26" font-weight="700" fill="var(--text)" font-family="Onest, sans-serif">${overall}%</text>
             </svg>
             <p style="text-align:center" class="muted">Сертификатов: <b>${passed.length}</b> из ${total}</p>
             <form id="name-form">
@@ -760,7 +760,7 @@
       <div class="wrap cert-wrap">
         <div class="crumbs no-print"><a href="#/profile">Личный кабинет</a> / Сертификат</div>
         <div class="cert">
-          <div class="logo" style="justify-content:center"><img class="logo__img" src="img/logo-vivafarm.svg" alt="Вивафарм" width="125" height="54"><span class="logo__divider" aria-hidden="true"></span><span class="logo__text">Viva<b>Academy</b></span></div>
+          <div class="logo" style="justify-content:center"><img class="logo__img" src="img/logo-vivafarm.svg" alt="Вивафарм" width="125" height="54"><span class="logo__divider" aria-hidden="true"></span><span class="logo__text">ВИВА<b>АКАДЕМИЯ</b></span></div>
           <h1>Сертификат</h1>
           <p>подтверждает, что</p>
           ${nameBlock}
@@ -1098,7 +1098,7 @@
       <section class="sheet">
         <header class="sheet__head">
           <img src="img/logo-vivafarm.svg" alt="" width="92" height="40">
-          <div><b>Viva Academy — доступ к обучению</b><span>${esc(branch)} · ${new Date().toLocaleDateString('ru-RU')}</span></div>
+          <div><b>ВИВААКАДЕМИЯ — доступ к обучению</b><span>${esc(branch)} · ${new Date().toLocaleDateString('ru-RU')}</span></div>
         </header>
         <ol class="sheet__steps">
           <li>Откройте сайт <b>${esc(site)}</b> на телефоне или компьютере.</li>
@@ -1178,7 +1178,7 @@
 
     updateNav(nav);
     const title = app.querySelector('h1');
-    document.title = (title && page ? title.textContent + ' — ' : '') + 'Viva Academy — обучение для фармацевтов';
+    document.title = (title && page ? title.textContent + ' — ' : '') + 'ВИВААКАДЕМИЯ — обучение сотрудников Вивафарм';
     window.scrollTo(0, 0);
     app.focus({ preventScroll: true });
   }
