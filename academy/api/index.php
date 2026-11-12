@@ -45,6 +45,11 @@ if ($action === 'me') {
         'passScore' => (float)config()['pass_score'],
         'selfRegister' => $selfRegister,
         // Номер выкладки: по нему открытая страница узнаёт, что вышла новая версия
+        // Сводные цифры для главной — только вошедшим сотрудникам, без персональных данных
+        'stats' => $u ? [
+            'staff' => (int)q("SELECT COUNT(*) FROM users WHERE role = 'user' AND active = 1")->fetchColumn(),
+            'certs' => (int)q('SELECT COUNT(*) FROM quiz_results WHERE passed_at IS NOT NULL')->fetchColumn(),
+        ] : null,
         'version' => is_file(__DIR__ . '/version.txt') ? trim((string)file_get_contents(__DIR__ . '/version.txt')) : '',
     ]);
 }

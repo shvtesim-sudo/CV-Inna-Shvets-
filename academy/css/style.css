@@ -588,3 +588,113 @@ a { color: var(--primary); }
   .sheet__table tr { page-break-inside: avoid; }
   .sheet__note { margin-top: 10px; font-size: 9pt; color: #444; }
 }
+
+/* ═════════ Быстрые ссылки на главной ═════════ */
+.quick-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: -32px 0 56px; }
+.quick-link {
+  display: grid; grid-template-columns: 44px 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: center;
+  padding: 16px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  text-decoration: none; color: var(--text);
+}
+.quick-link:hover { border-color: var(--brand); box-shadow: var(--shadow); }
+.quick-link span { grid-row: 1 / 3; font-size: 1.6rem; width: 44px; height: 44px; display: grid; place-items: center; background: var(--surface-2); border-radius: 6px; }
+.quick-link b { color: var(--heading); }
+.quick-link small { color: var(--muted); font-size: .84rem; }
+
+/* ═════════ Четыре опоры фармацевта ═════════ */
+:root { --pl1: #001f7a; --pl2: #8a6cc4; --pl3: #23874f; --pl4: #eb303a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pl1: #9db0ff; --pl2: #b9a2e8; --pl3: #52c785; --pl4: #ff5a62; } }
+:root[data-theme="dark"] { --pl1: #9db0ff; --pl2: #b9a2e8; --pl3: #52c785; --pl4: #ff5a62; }
+.pillars { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: clamp(28px, 5vw, 64px); align-items: center; }
+@media (max-width: 860px) { .pillars { grid-template-columns: 1fr; } .pl-diagram { order: -1; max-width: 400px; } }
+.pl-list { list-style: none; padding: 0; margin: 20px 0 0; border-top: 1px solid var(--border); }
+.pl-item { border-bottom: 1px solid var(--border); }
+.pl-item button { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: grid; grid-template-columns: 14px 1fr; column-gap: 14px; padding: 14px 4px; }
+.pl-item button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+.pl-dot { width: 12px; height: 12px; border-radius: 50%; margin-top: 6px; background: var(--dot); }
+.pl-name { display: block; font-size: 1.08rem; color: var(--heading); }
+.pl-item small { display: block; color: var(--muted); }
+.pl-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .35s ease; }
+.pl-inner { overflow: hidden; min-height: 0; display: grid; gap: 4px; }
+.pl-inner > span:first-child { padding-top: 8px; }
+.pl-item.is-active .pl-body { grid-template-rows: 1fr; }
+.pl-item.is-active .pl-name { color: var(--dot); }
+.pl-diagram { width: 100%; max-width: 520px; justify-self: center; }
+.pl-diagram svg { width: 100%; height: auto; display: block; overflow: visible; }
+.pl-ring { fill: transparent; stroke-width: 1.5; transition: fill .4s, stroke-width .4s; }
+.pl-label { font: 600 17px var(--font-head); }
+.pl-q { font-size: 12px; opacity: .8; }
+.pl-g { cursor: pointer; transition: opacity .4s; }
+.pl-orbit, .pl-core, .pl-halo { transform-box: fill-box; transform-origin: center; }
+@keyframes plD1 { 50% { transform: translate(-6px, 5px); } }
+@keyframes plD2 { 50% { transform: translate(6px, 6px); } }
+@keyframes plD3 { 50% { transform: translate(-5px, -6px); } }
+@keyframes plD4 { 50% { transform: translate(6px, -5px); } }
+@keyframes plPulse { 50% { transform: scale(1.08); } }
+@keyframes plHalo { 50% { opacity: .45; transform: scale(1.25); } }
+.pl-o1 { animation: plD1 9s ease-in-out infinite; }
+.pl-o2 { animation: plD2 11s ease-in-out infinite; }
+.pl-o3 { animation: plD3 10s ease-in-out infinite; }
+.pl-o4 { animation: plD4 12s ease-in-out infinite; }
+.pl-core { animation: plPulse 4s ease-in-out infinite; }
+.pl-halo { animation: plHalo 4s ease-in-out infinite; }
+.pl-diagram[data-active] .pl-g { opacity: .45; }
+.pl-diagram[data-active="1"] .pl-g1, .pl-diagram[data-active="2"] .pl-g2,
+.pl-diagram[data-active="3"] .pl-g3, .pl-diagram[data-active="4"] .pl-g4 { opacity: 1; }
+.pl-diagram[data-active="1"] .pl-g1 .pl-ring { stroke-width: 3; fill: color-mix(in srgb, var(--pl1) 9%, transparent); }
+.pl-diagram[data-active="2"] .pl-g2 .pl-ring { stroke-width: 3; fill: color-mix(in srgb, var(--pl2) 9%, transparent); }
+.pl-diagram[data-active="3"] .pl-g3 .pl-ring { stroke-width: 3; fill: color-mix(in srgb, var(--pl3) 9%, transparent); }
+.pl-diagram[data-active="4"] .pl-g4 .pl-ring { stroke-width: 3; fill: color-mix(in srgb, var(--pl4) 9%, transparent); }
+@media (prefers-reduced-motion: reduce) { .pl-o1, .pl-o2, .pl-o3, .pl-o4, .pl-core, .pl-halo { animation: none; } .pl-body { transition: none; } }
+
+/* ═════════ Нормативная база ═════════ */
+.law { margin-bottom: 56px; }
+.law__lead { font-size: 1.05rem; max-width: 60ch; }
+.law-tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 6px; background: var(--surface-2); margin: 8px 0 18px; }
+.law-tab { font: 600 .9rem var(--font-body); color: var(--text); padding: 10px 18px; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+.law-tab[aria-selected="true"] { background: var(--navy); color: #fff; }
+:root[data-theme="dark"] .law-tab[aria-selected="true"] { color: #0f1424; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .law-tab[aria-selected="true"] { color: #0f1424; } }
+.law-alert {
+  display: grid; grid-template-columns: 40px 1fr; gap: 14px; align-items: start; margin-bottom: 20px;
+  padding: 16px 18px; border-radius: var(--radius); background: var(--primary-soft); border: 1.5px solid var(--brand);
+  animation: lawIn .45s ease-out;
+}
+.law-alert[hidden] { display: none; }
+.law-alert p { margin: 0 0 6px; }
+.law-alert__icon { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--brand); color: #fff; font-weight: 700; font-size: 1.2rem; }
+.law-alert__title { font-weight: 700; font-size: 1.05rem; color: var(--heading); }
+@keyframes lawIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .law-alert { animation: none; } }
+.law-search .search { max-width: none; min-height: 54px; font-size: 1.02rem; margin-bottom: 10px; }
+.law-hints { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 18px; }
+.law-hint { font: 500 .84rem var(--font-body); color: var(--text); padding: 7px 12px; border-radius: 999px; border: 1px dashed var(--border); background: transparent; cursor: pointer; }
+.law-hint:hover { border-color: var(--brand); color: var(--brand); }
+.law-docs { display: grid; gap: 12px; }
+.law-doc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+.law-doc h3 { margin: 0 0 8px; font-size: 1.05rem; }
+.law-doc p { margin: 0 0 4px; max-width: 75ch; }
+.law-doc__meta { font-size: .84rem; color: var(--muted); }
+.law-doc__meta b { color: var(--accent); font-weight: 600; }
+.law-doc__warn { margin-top: 10px !important; font-size: .86rem; padding: 8px 12px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); }
+.law-doc__foot { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 14px; }
+.law__disclaimer { margin-top: 28px; max-width: 75ch; }
+mark { background: #fff1b8; color: inherit; border-radius: 3px; padding: 0 1px; }
+:root[data-theme="dark"] mark { background: #5a4a12; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) mark { background: #5a4a12; } }
+
+/* ═════════ К кому обращаться ═════════ */
+.team { margin-bottom: 56px; }
+.team__label { width: 100%; }
+.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 36px 22px; margin-top: 24px; }
+.team-card { text-align: center; transition: opacity .35s, transform .35s; }
+.team-card.is-dim { opacity: .3; }
+.team-card.is-match { transform: translateY(-4px); }
+.team-card h3 { margin: 0; font-size: 1.05rem; }
+.team-card p { margin: 4px 0 8px; }
+.team-card__text { max-width: 30ch; margin: 10px auto !important; font-size: .92rem; }
+.team-photo { width: 128px; height: 128px; margin: 0 auto 14px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+  background: conic-gradient(from 210deg, #001f7a, #eb303a, #23874f, #001f7a); color: #fff; font: 700 2.2rem var(--font-head); }
+.team-photo img { width: 100%; height: 100%; object-fit: cover; }
+.team-card.is-match .team-photo { box-shadow: 0 0 0 4px var(--bg), 0 0 0 7px var(--brand); }
+@media (max-width: 520px) { .team-grid { grid-template-columns: 1fr 1fr; } .team-photo { width: 100px; height: 100px; } }
