@@ -69,6 +69,8 @@ ssh-keyscan -p 22 СЕРВЕР
 
 ## Если выкладка не прошла
 - `Permission denied (publickey)` — открытый ключ не добавлен в `authorized_keys` нужного пользователя или неверный `DEPLOY_USER`.
+- `DEPLOY_SSH_KEY повреждён` или `error in libcrypto` — ключ испорчен при копировании: внесите его заново целиком, лучше с компьютера. Переносы строк, лишние пробелы и «длинные» тире выкладка исправляет сама.
+- В журнале выкладки печатается отпечаток ключа (`SHA256:…`). Сверьте его с ключом на сервере: `ssh-keygen -lf ~deploy_academy/.ssh/authorized_keys`.
 - `Host key verification failed` — неверный или неполный `DEPLOY_KNOWN_HOSTS`.
 - `rsync: command not found` — установите `rsync` на сервере.
 - `Permission denied` при записи файлов — у пользователя нет прав на запись в папку сайта (шаг 2).
