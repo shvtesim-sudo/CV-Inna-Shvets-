@@ -851,3 +851,10 @@ a { color: var(--primary); }
 /* Вкладки нормативной базы на узком экране переносятся */
 .law-tabs { flex-wrap: wrap; max-width: 100%; }
 @media (max-width: 520px) { .law-tabs { border-radius: 20px; } .law-tab { padding: 10px 14px; font-size: .92rem; } }
+
+/* Тесты до запуска Академии */
+.ext-title { margin-top: 28px; }
+.ext-list li { align-items: flex-start; }
+.ext-list small { display: block; margin-top: 2px; }
+.ext-admin-title { margin: 14px 0 6px; font-weight: 600; }
+.table td.t-num small { display: block; }

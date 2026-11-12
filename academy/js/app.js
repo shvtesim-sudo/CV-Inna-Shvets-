@@ -40,7 +40,7 @@
   }
 
   function applyProgress(p) {
-    if (p) state = { lessons: p.lessons || {}, quiz: p.quiz || {} };
+    if (p) state = { lessons: p.lessons || {}, quiz: p.quiz || {}, external: p.external || [] };
   }
 
   // Если на сервере уже новая версия, а браузер показал сохранённую старую —
@@ -725,6 +725,7 @@
               <text x="70" y="78" text-anchor="middle" font-size="26" font-weight="700" fill="var(--text)" font-family="Onest, sans-serif">${overall}%</text>
             </svg>
             <p style="text-align:center" class="muted">Сертификатов: <b>${passed.length}</b> из ${total}</p>
+            ${(state.external || []).length ? `<p style="text-align:center" class="muted small">Тестов до запуска Академии сдано: <b>${state.external.filter((r) => r.passed).length}</b> — список ниже, под курсами</p>` : ''}
             <form id="name-form">
               <div class="field">
                 <label for="name">Имя и фамилия для сертификата</label>
@@ -739,9 +740,26 @@
           <div class="panel">
             <h3>Курсы</h3>
             <ul class="row-list">${rows}</ul>
+            ${externalHtml(state.external || [])}
           </div>
         </div>
       </div>`;
+  }
+
+  // Тесты, пройденные на прежнем сайте тестирования до запуска Академии
+  function externalHtml(list) {
+    if (!list.length) return '';
+    const passed = list.filter((r) => r.passed).length;
+    return `
+      <h3 class="ext-title">Тесты, пройденные до запуска Академии</h3>
+      <p class="muted small">Сдано ${passed} из ${list.length}. Результаты перенесены с прежнего сайта тестирования.</p>
+      <ul class="row-list ext-list">${list.map((r) => `
+        <li>
+          <div class="grow"><b>${esc(r.test)}</b>
+            <small class="muted">${r.date ? formatDate(r.date) : ''}${r.attempts > 1 ? ` · попыток: ${r.attempts}` : ''}${r.certNo ? ` · сертификат № ${esc(r.certNo)}` : ''}</small></div>
+          <span class="badge ${r.passed ? 'badge--done' : 'badge--warn'}">${r.passed ? 'сдан' : 'не сдан'} · ${Math.round(r.score)}%${r.total ? ` (${r.correct} из ${r.total})` : ''}</span>
+        </li>`).join('')}
+      </ul>`;
   }
 
   function viewCertificate(c) {
@@ -830,6 +848,7 @@
             <button class="btn btn--primary btn--sm" data-admin="new">+ Сотрудник</button>
             <button class="btn btn--ghost btn--sm" data-admin="import">Импорт списка</button>
             <button class="btn btn--ghost btn--sm" data-admin="sheets">Логины по аптекам</button>
+            <button class="btn btn--ghost btn--sm" data-admin="results">Импорт результатов</button>
             <a class="btn btn--ghost btn--sm" href="${API}?action=admin_export">Выгрузить в Excel</a>
           </div>
         </div>
@@ -881,7 +900,7 @@
         <td><button class="link-btn" data-user-open="${u.id}" aria-expanded="${admin.open === u.id}"><b>${esc(u.name)}</b></button><small>${esc(u.login)}${u.role === 'admin' ? ' · администратор' : ''}${u.active ? '' : ' · заблокирован'}</small></td>
         <td>${esc(u.branch) || '—'}<small>${esc(u.position)}</small></td>
         <td class="t-progress"><span>${u.progress}%</span>${progressBar(u.progress)}</td>
-        <td class="t-num">${u.certs} / ${COURSES.length}</td>
+        <td class="t-num">${u.certs} / ${COURSES.length}${(u.external || []).length ? `<small>архив: ${u.external.filter((r) => r.passed).length} сдано</small>` : ''}</td>
         <td class="t-num">${formatDateTime(u.lastLogin)}</td>
         <td class="t-actions"><button class="btn btn--ghost btn--sm" data-user-edit="${u.id}">Изменить</button></td>
       </tr>
@@ -944,7 +963,9 @@
         : qr ? `<span class="badge badge--warn">не сдан · ${pct(qr.best)}% · попыток: ${qr.attempts}</span>`
         : `<span class="badge">уроков ${lessons} из ${c.lessons.length}</span>`;
       return `<li><span>${c.icon} ${esc(c.title)}</span>${status}</li>`;
-    }).join('')}</ul>`;
+    }).join('')}</ul>${(u.external || []).length ? `
+      <p class="small muted ext-admin-title">Тесты до запуска Академии</p>
+      <ul class="detail-list">${u.external.map((r) => `<li><span>${esc(r.test)}</span><span class="badge ${r.passed ? 'badge--done' : 'badge--warn'}">${r.passed ? 'сдан' : 'не сдан'} · ${Math.round(r.score)}%${r.attempts > 1 ? ` · попыток: ${r.attempts}` : ''}</span></li>`).join('')}</ul>` : ''}`;
   }
 
   function openUserForm(u) {
@@ -1028,6 +1049,54 @@
         </div>
       </div>`;
     modal.lastImport = r.created;
+  }
+
+  /* Импорт результатов тестов со старого сайта тестирования */
+  function openResultsImport() {
+    modal.innerHTML = `
+      <form id="results-form" class="modal__body">
+        <h2>Импорт результатов тестов</h2>
+        <p class="muted small">Файл с результатами тестов, пройденных до запуска Академии. Колонки: <b>логин; тест; результат; верных; всего; статус; дата; попыток; сертификат</b>. Сотрудники находятся по логину. Повторный импорт ничего не дублирует, более высокий балл заменяет прежний.</p>
+        <div class="field"><label for="res-file">Файл CSV</label><input id="res-file" type="file" accept=".csv,.txt,text/csv" required></div>
+        <div class="form-msg"></div>
+        <div class="btn-row"><button class="btn btn--primary">Импортировать</button><button type="button" class="btn btn--ghost" data-close>Отмена</button></div>
+      </form>`;
+    modal.showModal();
+  }
+
+  function parseResults(text) {
+    const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
+    const head = (lines.shift() || '').toLowerCase().split(';').map((h) => h.trim().replace(/^"|"$/g, ''));
+    const at = (name) => head.indexOf(name);
+    if (at('логин') < 0 || at('тест') < 0 || at('результат') < 0) return null;
+    return lines.map((l) => {
+      const c = l.split(';').map((v) => v.trim().replace(/^"|"$/g, ''));
+      const get = (n) => (at(n) >= 0 ? c[at(n)] || '' : '');
+      return {
+        login: get('логин'), test: get('тест'), score: parseFloat(get('результат').replace('%', '').replace(',', '.')) || 0,
+        correct: parseInt(get('верных'), 10) || 0, total: parseInt(get('всего'), 10) || 0,
+        passed: /^сдан/i.test(get('статус')), date: get('дата'), attempts: parseInt(get('попыток'), 10) || 1, cert: get('сертификат')
+      };
+    }).filter((r) => r.login && r.test);
+  }
+
+  async function importResults(rows, form) {
+    const sum = { added: 0, updated: 0, unchanged: 0, unknown: new Set() };
+    for (let i = 0; i < rows.length; i += 400) {
+      showFormMsg(form, '');
+      form.querySelector('.form-msg').innerHTML = `<p class="muted small">Загружено ${i} из ${rows.length}…</p>`;
+      const r = await call('admin_import_results', { rows: rows.slice(i, i + 400) });
+      sum.added += r.added; sum.updated += r.updated; sum.unchanged += r.unchanged;
+      r.unknownLogins.forEach((l) => sum.unknown.add(l));
+    }
+    modal.innerHTML = `
+      <div class="modal__body">
+        <h2>Результаты загружены</h2>
+        <p>Строк в файле: <b>${rows.length}</b>. Добавлено: <b>${sum.added}</b>, обновлено (балл выше прежнего): <b>${sum.updated}</b>, без изменений: <b>${sum.unchanged}</b>.</p>
+        ${sum.unknown.size ? `<p class="note warn">Не найдены на платформе логины (${sum.unknown.size}): ${esc(Array.from(sum.unknown).join(', '))}. Эти строки пропущены.</p>` : ''}
+        <p class="muted small">Сотрудники увидят результаты в личном кабинете в блоке «Тесты, пройденные до запуска Академии».</p>
+        <div class="btn-row"><button class="btn btn--primary" data-close>Готово</button></div>
+      </div>`;
   }
 
   /* Листы доступа по аптекам: файл с паролями обрабатывается только в браузере */
@@ -1278,6 +1347,8 @@
       openUserForm(null);
     } else if (t.dataset.admin === 'import') {
       openImport();
+    } else if (t.dataset.admin === 'results') {
+      openResultsImport();
     } else if (t.dataset.admin === 'sheets') {
       sheets = null;
       openSheets();
@@ -1387,6 +1458,14 @@
         modal.close();
         toast('Сохранено');
         await loadAdmin();
+      }
+      if (formId === 'results-form') {
+        const file = document.getElementById('res-file').files[0];
+        const rows = file ? parseResults(await file.text()) : null;
+        if (!rows || !rows.length) throw new Error('В файле не найдены колонки «логин», «тест», «результат» или строки с результатами.');
+        await importResults(rows, form);
+        await loadAdmin();
+        return;
       }
       if (formId === 'import-form') {
         const file = document.getElementById('imp-file').files[0];
