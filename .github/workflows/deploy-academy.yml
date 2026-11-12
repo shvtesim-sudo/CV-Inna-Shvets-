@@ -58,14 +58,24 @@ jobs:
           # получает лишние пробелы и «длинные» тире — восстанавливаем формат.
           python3 - > ~/.ssh/deploy_key <<'PY'
           import os, re, sys, textwrap
-          k = os.environ['DEPLOY_SSH_KEY'].replace('\r', '')
-          dash = r'[-‐-―−]'
-          m = re.search(dash + r'*\s*BEGIN ([A-Z ]*PRIVATE KEY)\s*' + dash + r'+(.*?)'
-                        + dash + r'+\s*END \1\s*' + dash + r'*', k, re.S)
-          if not m:
-              sys.exit('::error::DEPLOY_SSH_KEY: не найдены строки BEGIN/END PRIVATE KEY — вставьте ключ целиком')
-          body = re.sub(r'[^A-Za-z0-9+/=]', '', m.group(2))
-          print('-----BEGIN %s-----\n%s\n-----END %s-----' % (m.group(1), '\n'.join(textwrap.wrap(body, 70)), m.group(1)))
+          raw = os.environ['DEPLOY_SSH_KEY']
+          k = re.sub(r'[\u200b-\u200d\u2060\ufeff\r]', '', raw)
+          k = re.sub(r'[\u00a0\u2000-\u200a\u202f\u205f\u3000]', ' ', k)
+          k = re.sub(r'[\u2010-\u2015\u2212]', '-', k)
+          lines = [l for l in k.split('\n') if l.strip()]
+          print('Ключ: %d симв., %d строк, BEGIN: %s, END: %s' % (len(raw), len(lines),
+                'да' if re.search(r'\bbegin\b', k, re.I) else 'нет', 'да' if re.search(r'\bend\b', k, re.I) else 'нет'), file=sys.stderr)
+          m = re.search(r'-*\s*BEGIN\s+([A-Z][A-Z ]*?PRIVATE\s+KEY)\s*-+(.*?)-+\s*END\s+[A-Z ]*?PRIVATE\s+KEY\s*-*', k, re.S | re.I)
+          if m:
+              kind, body = re.sub(r'\s+', ' ', m.group(1)).upper(), m.group(2)
+          else:
+              kind, body = 'OPENSSH PRIVATE KEY', re.sub(r'(?i)-*\s*(BEGIN|END)[^-]*-*', '', k)
+          body = re.sub(r'[^A-Za-z0-9+/=]', '', body)
+          if not body.startswith(('b3BlbnNzaC1rZXktdjE', 'MII')):
+              sys.exit('::error::DEPLOY_SSH_KEY не похож на закрытый SSH-ключ — внесите его заново целиком, от строки BEGIN до строки END')
+          if body.startswith('MII') and kind == 'OPENSSH PRIVATE KEY':
+              kind = 'PRIVATE KEY'
+          print('-----BEGIN %s-----\n%s\n-----END %s-----' % (kind, '\n'.join(textwrap.wrap(body, 70)), kind))
           PY
           chmod 600 ~/.ssh/deploy_key
           if ! ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null 2>&1; then
