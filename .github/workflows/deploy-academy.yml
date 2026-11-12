@@ -54,8 +54,26 @@ jobs:
             if [ -z "${!v}" ]; then echo "::error::Не задан секрет $v (см. docs/DEPLOY.md)"; exit 1; fi
           done
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # Ключ, вставленный с телефона, часто теряет переносы строк или
+          # получает лишние пробелы и «длинные» тире — восстанавливаем формат.
+          python3 - > ~/.ssh/deploy_key <<'PY'
+          import os, re, sys, textwrap
+          k = os.environ['DEPLOY_SSH_KEY'].replace('\r', '')
+          dash = r'[-‐-―−]'
+          m = re.search(dash + r'*\s*BEGIN ([A-Z ]*PRIVATE KEY)\s*' + dash + r'+(.*?)'
+                        + dash + r'+\s*END \1\s*' + dash + r'*', k, re.S)
+          if not m:
+              sys.exit('::error::DEPLOY_SSH_KEY: не найдены строки BEGIN/END PRIVATE KEY — вставьте ключ целиком')
+          body = re.sub(r'[^A-Za-z0-9+/=]', '', m.group(2))
+          print('-----BEGIN %s-----\n%s\n-----END %s-----' % (m.group(1), '\n'.join(textwrap.wrap(body, 70)), m.group(1)))
+          PY
+          chmod 600 ~/.ssh/deploy_key
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null 2>&1; then
+            echo "::error::DEPLOY_SSH_KEY повреждён или защищён паролем — внесите ключ заново (см. docs/DEPLOY.md)"
+            exit 1
+          fi
+          echo "Ключ прочитан, отпечаток: $(ssh-keygen -lf ~/.ssh/deploy_key | awk '{print $2}')"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
           # Только добавляем и перезаписываем файлы сайта: ничего не удаляем,
           # настройки базы, данные и установщик на сервере не трогаем.
           rsync -rlvz --checksum --chmod=D755,F644 \
