@@ -621,6 +621,7 @@
           <div class="btn-row">
             <button class="btn btn--primary btn--sm" data-admin="new">+ Сотрудник</button>
             <button class="btn btn--ghost btn--sm" data-admin="import">Импорт списка</button>
+            <button class="btn btn--ghost btn--sm" data-admin="sheets">Логины по аптекам</button>
             <a class="btn btn--ghost btn--sm" href="${API}?action=admin_export">Выгрузить в Excel</a>
           </div>
         </div>
@@ -814,11 +815,116 @@
         ${r.created.length ? `<p class="note">Сохраните логины и пароли сейчас — после закрытия окна пароли больше не будут показаны.</p><ul class="cred-list">${rows}</ul>` : ''}
         ${skipped ? `<details><summary>Пропущенные строки</summary><ul>${skipped}</ul></details>` : ''}
         <div class="btn-row" style="margin-top:16px">
-          ${r.created.length ? '<button class="btn btn--primary" data-cred-download>Скачать логины и пароли</button>' : ''}
+          ${r.created.length ? '<button class="btn btn--primary" data-cred-download>Скачать логины и пароли</button><button class="btn btn--ghost" data-cred-print>Печать по аптекам</button>' : ''}
           <button class="btn btn--ghost" data-close>Закрыть</button>
         </div>
       </div>`;
     modal.lastImport = r.created;
+  }
+
+  /* Листы доступа по аптекам: файл с паролями обрабатывается только в браузере */
+  let sheets = null;
+
+  function parseCreds(text) {
+    const rows = text.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim())
+      .map((line) => line.split(line.includes('\t') ? '\t' : line.includes(';') ? ';' : ',')
+        .map((v) => v.trim().replace(/^"|"$/g, '').replace(/""/g, '"')));
+    if (!rows.length) return [];
+    const head = rows[0].map((h) => h.toLowerCase());
+    const col = (re, def) => { const i = head.findIndex((h) => re.test(h)); return i === -1 ? def : i; };
+    const hasHead = head.some((h) => /логин|login|пароль|password/.test(h));
+    const iName = col(/фио|имя|name/, 0);
+    const iLogin = col(/логин|login/, hasHead ? -1 : 1);
+    const iPass = col(/пароль|password/, hasHead ? -1 : rows[0].length - 1);
+    const iBranch = col(/аптек|филиал|подразд|branch/, -1);
+    if (iLogin < 0 || iPass < 0) return [];
+    return rows.slice(hasHead ? 1 : 0).map((c) => ({
+      name: c[iName] || '', login: (c[iLogin] || '').toLowerCase(), password: c[iPass] || '', branch: iBranch >= 0 ? c[iBranch] || '' : ''
+    })).filter((r) => r.login && r.password);
+  }
+
+  // Имя файла латиницей: браузеры не всегда принимают кириллицу в имени загрузки
+  function translit(text) {
+    const map = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };
+    return text.toLowerCase().split('').map((ch) => (ch in map ? map[ch] : ch)).join('')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'apteka';
+  }
+
+  function groupCreds(list) {
+    const byLogin = new Map(admin.users.map((u) => [u.login, u]));
+    const groups = new Map();
+    list.forEach((r) => {
+      const u = byLogin.get(r.login);
+      const branch = (u && u.branch) || r.branch || 'Без аптеки';
+      if (!groups.has(branch)) groups.set(branch, []);
+      groups.get(branch).push({ name: (u && u.name) || r.name, login: r.login, password: r.password });
+    });
+    return new Map(Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0], 'ru', { numeric: true })));
+  }
+
+  function openSheets() {
+    modal.innerHTML = `
+      <div class="modal__body">
+        <h2>Логины по аптекам</h2>
+        <p class="muted small">Выберите файл с логинами и паролями, который вы скачали после импорта. Файл обрабатывается только в этом браузере и никуда не отправляется.</p>
+        <div class="field"><label for="cred-file">Файл с логинами и паролями (CSV)</label><input id="cred-file" type="file" accept=".csv,.txt,text/csv"></div>
+        <div id="sheet-panel"></div>
+        <div class="btn-row" style="margin-top:8px"><button class="btn btn--ghost" data-close>Закрыть</button></div>
+      </div>`;
+    modal.showModal();
+  }
+
+  function renderSheetPanel() {
+    const panel = document.getElementById('sheet-panel');
+    if (!panel) return;
+    if (!sheets || !sheets.size) {
+      panel.innerHTML = formError('В файле не найдены логины и пароли. Нужен файл, скачанный кнопкой «Скачать логины и пароли» после импорта.');
+      return;
+    }
+    const total = Array.from(sheets.values()).reduce((n, g) => n + g.length, 0);
+    panel.innerHTML = `
+      <p>Найдено сотрудников: <b>${total}</b>, аптек и подразделений: <b>${sheets.size}</b>.</p>
+      <div class="btn-row" style="margin-bottom:14px"><button class="btn btn--primary" data-sheet-print="">Печать / PDF — все аптеки</button></div>
+      <ul class="sheet-list">${Array.from(sheets.entries()).map(([b, list], i) => `
+        <li><span><b>${esc(b)}</b><small>${list.length} ${plural(list.length, 'сотрудник', 'сотрудника', 'сотрудников')}</small></span>
+          <span class="btn-row"><button class="btn btn--ghost btn--sm" data-sheet-print="${i + 1}">Печать</button><button class="btn btn--ghost btn--sm" data-sheet-csv="${i + 1}">CSV</button></span></li>`).join('')}
+      </ul>`;
+  }
+
+  function sheetHtml(branch, list) {
+    const site = location.origin.replace(/^https?:\/\//, '');
+    return `
+      <section class="sheet">
+        <header class="sheet__head">
+          <img src="img/logo-vivafarm.svg" alt="" width="92" height="40">
+          <div><b>Viva Academy — доступ к обучению</b><span>${esc(branch)} · ${new Date().toLocaleDateString('ru-RU')}</span></div>
+        </header>
+        <ol class="sheet__steps">
+          <li>Откройте сайт <b>${esc(site)}</b> на телефоне или компьютере.</li>
+          <li>Введите свой логин и пароль из таблицы ниже.</li>
+          <li>Сразу смените пароль: <b>Личный кабинет → Сменить пароль</b>.</li>
+          <li>Откройте <b>Курсы</b>, пройдите уроки и итоговый тест — сертификат появится в личном кабинете.</li>
+        </ol>
+        <table class="sheet__table">
+          <thead><tr><th>№</th><th>ФИО</th><th>Логин</th><th>Пароль</th></tr></thead>
+          <tbody>${list.map((u, i) => `<tr><td>${i + 1}</td><td>${esc(u.name)}</td><td>${esc(u.login)}</td><td>${esc(u.password)}</td></tr>`).join('')}</tbody>
+        </table>
+        <p class="sheet__note">Логин и пароль личные — не передавайте их другим. Вопросы по доступу — к руководителю аптеки.</p>
+      </section>`;
+  }
+
+  function printSheets(which) {
+    const entries = Array.from(sheets.entries());
+    const chosen = which ? [entries[Number(which) - 1]] : entries;
+    let box = document.getElementById('print-sheets');
+    if (!box) { box = document.createElement('div'); box.id = 'print-sheets'; document.body.appendChild(box); }
+    box.innerHTML = chosen.map(([b, list]) => sheetHtml(b, list)).join('');
+    if (modal.open) modal.close();
+    document.body.classList.add('printing');
+    const done = () => { document.body.classList.remove('printing'); box.innerHTML = ''; window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    const imgs = Array.from(box.querySelectorAll('img'));
+    Promise.all(imgs.map((im) => (im.complete ? 1 : new Promise((r) => { im.onload = im.onerror = r; })))).then(() => window.print());
   }
 
   /* ───────────── Роутер ───────────── */
@@ -937,6 +1043,9 @@
       openUserForm(null);
     } else if (t.dataset.admin === 'import') {
       openImport();
+    } else if (t.dataset.admin === 'sheets') {
+      sheets = null;
+      openSheets();
     } else if (t.dataset.userEdit) {
       openUserForm(admin.users.find((u) => u.id === Number(t.dataset.userEdit)));
     } else if (t.dataset.userOpen) {
@@ -1050,16 +1159,30 @@
   app.addEventListener('submit', handleSubmit);
   modal.addEventListener('submit', handleSubmit);
 
+  modal.addEventListener('change', async (e) => {
+    if (e.target.id !== 'cred-file' || !e.target.files[0]) return;
+    sheets = groupCreds(parseCreds(await e.target.files[0].text()));
+    renderSheetPanel();
+  });
+
   modal.addEventListener('click', async (e) => {
     if (e.target === modal) { modal.close(); return; }
     const t = e.target.closest('button');
     if (!t) return;
     if (t.hasAttribute('data-close')) {
       modal.close();
+    } else if (t.dataset.sheetPrint !== undefined) {
+      printSheets(t.dataset.sheetPrint);
+    } else if (t.dataset.sheetCsv) {
+      const [b, list] = Array.from(sheets.entries())[Number(t.dataset.sheetCsv) - 1];
+      downloadCsv(`viva-academy-${translit(b)}.csv`, [['ФИО', 'Логин', 'Пароль']].concat(list.map((u) => [u.name, u.login, u.password])));
     } else if (t.hasAttribute('data-genpass')) {
       modal.querySelector('#u-password').value = genPassword();
     } else if (t.hasAttribute('data-cred-download')) {
-      downloadCsv('viva-academy-logins.csv', [['ФИО', 'Логин', 'Пароль']].concat(modal.lastImport.map((u) => [u.name, u.login, u.password])));
+      downloadCsv('viva-academy-logins.csv', [['ФИО', 'Аптека', 'Логин', 'Пароль']].concat(modal.lastImport.map((u) => [u.name, u.branch || '', u.login, u.password])));
+    } else if (t.hasAttribute('data-cred-print')) {
+      sheets = groupCreds(modal.lastImport.map((u) => ({ name: u.name, login: u.login, password: u.password, branch: u.branch || '' })));
+      printSheets('');
     } else if (t.dataset.userReset) {
       if (!confirm('Сбросить весь прогресс и сертификаты этого сотрудника?')) return;
       try {
