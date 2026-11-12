@@ -42,9 +42,24 @@
     if (p) state = { lessons: p.lessons || {}, quiz: p.quiz || {} };
   }
 
+  // Если на сервере уже новая версия, а браузер показал сохранённую старую —
+  // обновляем страницу один раз, минуя кэш
+  async function reloadIfOutdated(serverVersion) {
+    const mine = window.APP_VERSION || '';
+    if (!serverVersion || mine.indexOf('__') === 0 || serverVersion === mine) return false;
+    let tried = '';
+    try { tried = sessionStorage.getItem('viva-reloaded-for') || ''; } catch (e) { /* ignore */ }
+    if (tried === serverVersion) return false;
+    try { sessionStorage.setItem('viva-reloaded-for', serverVersion); } catch (e) { return false; }
+    try { await fetch(location.pathname, { cache: 'reload' }); } catch (e) { /* всё равно перезагружаем */ }
+    location.reload();
+    return true;
+  }
+
   async function boot() {
     try {
       const me = await call('me');
+      if (await reloadIfOutdated(me.version)) return;
       mode = 'server';
       csrf = me.csrf;
       passScore = me.passScore;
