@@ -1,0 +1,76 @@
+name: Deploy Viva Academy
+
+# Выкладывает папку academy/ на сервер vivaacademy.md после каждого
+# изменения в ветке main. Настройка — docs/DEPLOY.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'academy/**'
+      - '.github/workflows/deploy-academy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-academy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check PHP syntax
+        run: for f in academy/api/*.php; do php -l "$f"; done
+
+      - name: Check deploy settings
+        id: cfg
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Секреты DEPLOY_* не заданы — выкладка пропущена. См. docs/DEPLOY.md"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to server
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for v in DEPLOY_USER DEPLOY_PATH DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            if [ -z "${!v}" ]; then echo "::error::Не задан секрет $v (см. docs/DEPLOY.md)"; exit 1; fi
+          done
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # Только добавляем и перезаписываем файлы сайта: ничего не удаляем,
+          # настройки базы, данные и установщик на сервере не трогаем.
+          rsync -rlvz --checksum --chmod=D755,F644 \
+            --exclude 'api/config.php' \
+            --exclude 'api/install.php' \
+            --exclude 'data/' \
+            --exclude 'tools/' \
+            --exclude 'README.md' \
+            --exclude '.gitignore' \
+            -e "ssh -i $HOME/.ssh/deploy_key -p ${DEPLOY_PORT:-22} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+            academy/ "$DEPLOY_USER@$DEPLOY_HOST:${DEPLOY_PATH%/}/"
+
+      - name: Check the site answers
+        if: steps.cfg.outputs.configured == 'true'
+        run: |
+          curl -fsS --max-time 30 https://vivaacademy.md/ -o /dev/null
+          curl -fsS --max-time 30 "https://vivaacademy.md/api/index.php?action=me" | grep -q '"csrf"'
+          echo "Сайт отвечает, API работает"
