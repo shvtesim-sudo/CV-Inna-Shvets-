@@ -84,6 +84,11 @@ jobs:
           fi
           echo "Ключ прочитан, отпечаток: $(ssh-keygen -lf ~/.ssh/deploy_key | awk '{print $2}')"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+          # Номер версии: браузеры загружают обновлённые css/js, а открытые
+          # страницы сами перезагружаются после выкладки
+          VERSION="${GITHUB_SHA::8}"
+          sed -i "s/__VERSION__/$VERSION/g" academy/index.html
+          printf '%s\n' "$VERSION" > academy/api/version.txt
           # Только добавляем и перезаписываем файлы сайта: ничего не удаляем,
           # настройки базы, данные и установщик на сервере не трогаем.
           rsync -rlvz --checksum --chmod=D755,F644 \

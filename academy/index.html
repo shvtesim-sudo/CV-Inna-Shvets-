@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=__VERSION__">
 </head>
 <body>
   <a class="skip" href="#app">Перейти к содержанию</a>
@@ -65,7 +65,8 @@
   <dialog id="modal" class="modal"></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/data.js"></script>
-  <script src="js/app.js"></script>
+  <script>window.APP_VERSION = '__VERSION__';</script>
+  <script src="js/data.js?v=__VERSION__"></script>
+  <script src="js/app.js?v=__VERSION__"></script>
 </body>
 </html>

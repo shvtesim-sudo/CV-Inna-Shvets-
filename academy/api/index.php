@@ -44,6 +44,8 @@ if ($action === 'me') {
         'csrf' => $_SESSION['csrf'],
         'passScore' => (float)config()['pass_score'],
         'selfRegister' => $selfRegister,
+        // Номер выкладки: по нему открытая страница узнаёт, что вышла новая версия
+        'version' => is_file(__DIR__ . '/version.txt') ? trim((string)file_get_contents(__DIR__ . '/version.txt')) : '',
     ]);
 }
 
