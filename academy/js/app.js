@@ -18,6 +18,7 @@
   let selfRegister = false;
   let user = null;
   let bootError = '';
+  let siteStats = null;
   let state = { lessons: {}, quiz: {} };
 
   async function call(action, body, method) {
@@ -56,6 +57,11 @@
     return true;
   }
 
+  // Сводные цифры для главной приходят только вошедшим — обновляем после входа
+  async function refreshStats() {
+    try { siteStats = (await call('me')).stats || null; } catch (e) { /* цифры не обязательны */ }
+  }
+
   async function boot() {
     try {
       const me = await call('me');
@@ -66,6 +72,7 @@
       selfRegister = me.selfRegister;
       user = me.user;
       applyProgress(me.progress);
+      siteStats = me.stats || null;
     } catch (e) {
       if (e.code) {
         // API есть, но не готов (не настроена база или не запущен установщик)
@@ -266,8 +273,8 @@
         <div class="wrap hero__grid">
           <div>
             <span class="eyebrow">${hello}</span>
-            <h1>Уверенная консультация за первым столом</h1>
-            <p class="lead">Короткие практические уроки, разбор реальных ситуаций в аптеке, тесты с пояснениями и сертификат о прохождении. Учитесь в своём темпе — с телефона или компьютера.</p>
+            <h1>Знания, которые помогают у первого стола</h1>
+            <p class="lead">Обучающие материалы, тесты и сертификаты для сотрудников аптек и салонов оптики Вивафарм. Ваш прогресс всегда под рукой.</p>
             <div class="btn-row">
               <a class="btn btn--primary" href="#/courses">Выбрать курс</a>
               <a class="btn btn--ghost" href="#/course/consult">Начать с основ</a>
@@ -287,8 +294,15 @@
         <div class="stats">
           <div class="stat"><b>${COURSES.length}</b><span>курсов</span></div>
           <div class="stat"><b>${totalLessons}</b><span>уроков</span></div>
-          <div class="stat"><b>${totalQ}</b><span>вопросов в тестах</span></div>
-          <div class="stat"><b>${Object.keys(CATEGORIES).length}</b><span>направлений</span></div>
+          ${siteStats ? `<div class="stat"><b>${siteStats.staff}</b><span>сотрудников в Академии</span></div>
+          <div class="stat"><b>${siteStats.certs}</b><span>выданных сертификатов</span></div>`
+            : `<div class="stat"><b>${totalQ}</b><span>вопросов в тестах</span></div>
+          <div class="stat"><b>${Object.keys(CATEGORIES).length}</b><span>направлений</span></div>`}
+        </div>
+        <div class="quick-links">
+          <a class="quick-link" href="#/law"><span aria-hidden="true">⚖️</span><b>Нормативная база</b><small>Законы и приказы ПМР для аптеки и бухгалтерии</small></a>
+          ${teamReady() ? '<a class="quick-link" href="#/team"><span aria-hidden="true">👥</span><b>К кому обращаться</b><small>Кто в Вивафарм отвечает за ваш вопрос</small></a>' : ''}
+          <a class="quick-link" href="#/profile"><span aria-hidden="true">🎓</span><b>Мои сертификаты</b><small>Прогресс и документы в личном кабинете</small></a>
         </div>
         <section class="section">
           <div class="section__head">
@@ -306,6 +320,178 @@
             <div><b>Получите сертификат</b><p>Распечатайте или сохраните в PDF для портфолио.</p></div>
           </div>
         </section>
+        ${pillarsHtml()}
+      </div>`;
+  }
+
+  /* ───────────── Четыре опоры фармацевта ───────────── */
+  const PILLARS = [
+    { name: 'Знания', q: 'Что я знаю?', text: 'Фармакология, составы, показания, взаимодействия и ассортимент своей аптеки.', where: 'В Академии: курсы, тесты и нормативная база.' },
+    { name: 'Опыт', q: 'Что я видел на практике?', text: 'Реальные случаи у первого стола, разборы ошибок и советы наставника.', where: 'В Академии: разборы ситуаций в уроках.' },
+    { name: 'Консультация', q: 'Как я объясняю?', text: 'Выявить потребность, предложить решение и понятно объяснить, как его применять.', where: 'В Академии: алгоритм первого стола, сервис и этичные рекомендации.' },
+    { name: 'Забота', q: 'Ради кого я это делаю?', text: 'Видеть человека, вовремя заметить красный флаг и направить к врачу, когда это нужно.', where: 'В Академии: красные флаги и безопасная рекомендация.' }
+  ];
+  let pillarsTimer = null;
+
+  function pillarsHtml() {
+    const ring = (i, cx, cy, lx, ly, qy) => `
+      <g class="pl-g pl-g${i}" data-pillar="${i}">
+        <g class="pl-orbit pl-o${i}">
+          <circle class="pl-ring" cx="${cx}" cy="${cy}" r="128" stroke="var(--pl${i})"/>
+          <text class="pl-label" x="${lx}" y="${ly}" text-anchor="middle" fill="var(--pl${i})">${PILLARS[i - 1].name}</text>
+          <text class="pl-q" x="${lx}" y="${qy}" text-anchor="middle" fill="var(--pl${i})">${PILLARS[i - 1].q}</text>
+        </g>
+      </g>`;
+    return `
+      <section class="section pillars" aria-labelledby="pillars-title">
+        <div>
+          <h2 id="pillars-title">Четыре опоры фармацевта, которому доверяют</h2>
+          <p class="muted">Покупатель возвращается не за таблеткой, а к человеку. Доверие появляется там, где сходятся четыре вещи, и каждую из них Академия помогает развивать.</p>
+          <ul class="pl-list">${PILLARS.map((p, k) => `
+            <li class="pl-item" data-pillar="${k + 1}" style="--dot: var(--pl${k + 1})">
+              <button type="button" aria-expanded="false" data-pillar-btn="${k + 1}">
+                <span class="pl-dot"></span>
+                <span><b class="pl-name">${p.name}</b><small>${p.q}</small>
+                  <span class="pl-body"><span class="pl-inner"><span>${p.text}</span><span class="muted">${p.where}</span></span></span>
+                </span>
+              </button>
+            </li>`).join('')}
+          </ul>
+        </div>
+        <div class="pl-diagram" id="pl-diagram" role="img" aria-label="Четыре пересекающихся круга: знания, опыт, консультация и забота. В центре — доверие.">
+          <svg viewBox="0 0 520 520" aria-hidden="true">
+            <defs><linearGradient id="plCore" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#eb303a"/><stop offset="100%" stop-color="#001f7a"/></linearGradient></defs>
+            ${ring(1, 260, 170, 260, 92, 112)}${ring(2, 170, 260, 108, 256, 276)}${ring(3, 350, 260, 412, 256, 276)}${ring(4, 260, 350, 260, 424, 444)}
+            <circle class="pl-halo" cx="260" cy="260" r="48" fill="#eb303a" opacity=".25"/>
+            <g class="pl-core"><circle cx="260" cy="260" r="42" fill="url(#plCore)"/><text x="260" y="265" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">Доверие</text></g>
+          </svg>
+        </div>
+      </section>`;
+  }
+
+  function activatePillar(i) {
+    const d = document.getElementById('pl-diagram');
+    if (!d) return;
+    d.dataset.active = i;
+    document.querySelectorAll('.pl-item').forEach((li) => {
+      const on = Number(li.dataset.pillar) === i;
+      li.classList.toggle('is-active', on);
+      li.querySelector('button').setAttribute('aria-expanded', on ? 'true' : 'false');
+    });
+  }
+
+  function startPillars() {
+    if (!document.getElementById('pl-diagram')) return;
+    activatePillar(1);
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      let cur = 1;
+      pillarsTimer = setInterval(() => { cur = (cur % 4) + 1; activatePillar(cur); }, 4500);
+    }
+  }
+  function stopPillars() { if (pillarsTimer) { clearInterval(pillarsTimer); pillarsTimer = null; } }
+
+  /* ───────────── Нормативная база ───────────── */
+  const law = { sec: 'pharm', cat: null, q: '' };
+
+  function viewLaw(sec) {
+    const L = window.LAW;
+    if (sec) { law.sec = sec; law.cat = null; }
+    const tabs = L.SECTIONS.map((x) => `<button type="button" class="law-tab" role="tab" data-law-sec="${x.key}" aria-selected="${law.sec === x.key}">${esc(x.label)}</button>`).join('');
+    const n = L.CHECK_NOTICE;
+    return `
+      <div class="wrap narrow law">
+        <div class="crumbs"><a href="#/">Главная</a> / Нормативная база</div>
+        <h1>Нормативная база</h1>
+        <p class="muted law__lead">Законы и приказы ПМР, по которым работает Вивафарм. Напишите вопрос своими словами — покажем документы, где искать ответ.</p>
+        <div class="law-tabs" role="tablist" aria-label="Подраздел">${tabs}</div>
+        <div class="law-alert" role="status" ${law.sec === 'acc' ? '' : 'hidden'}>
+          <span class="law-alert__icon" aria-hidden="true">!</span>
+          <div><p class="law-alert__title">${esc(n.title)}</p><p>${esc(n.text)}</p><p class="small muted">${esc(n.src)}</p></div>
+        </div>
+        <div class="law-search">
+          <input id="law-q" class="search" type="search" autocomplete="off" aria-label="Поиск по нормативной базе"
+            placeholder="${law.sec === 'acc' ? 'Например: лимит остатка наличных в кассе' : 'Например: можно ли вернуть лекарство'}" value="${esc(law.q)}">
+        </div>
+        <div class="law-hints"><span class="muted small">Частые вопросы:</span>
+          ${(L.HINTS[law.sec] || []).map((h) => `<button type="button" class="law-hint" data-law-hint="${esc(h)}">${esc(h)}</button>`).join('')}
+        </div>
+        <div class="filters" role="group" aria-label="Раздел" id="law-cats"></div>
+        <p class="muted small" id="law-count" aria-live="polite"></p>
+        <div class="law-docs" id="law-docs"></div>
+        <p class="law__disclaimer muted small">Раздел носит справочный характер. Ссылки ведут на официальные и открытые источники ПМР; перед применением проверяйте, что документ действует в текущей редакции. Вопросы по толкованию норм — к ответственному провизору или главному бухгалтеру.</p>
+      </div>`;
+  }
+
+  function renderLaw() {
+    const L = window.LAW;
+    const box = document.getElementById('law-docs');
+    if (!box) return;
+    const inSecDocs = L.DOCS.filter((d) => L.inSec(d, law.sec));
+    document.getElementById('law-cats').innerHTML = [['', 'Все', inSecDocs.length]]
+      .concat(L.CATEGORIES.filter((c) => c.sec === law.sec).map((c) => [c.key, c.label, L.DOCS.filter((d) => d.cat.indexOf(c.key) > -1).length]))
+      .map(([k, label, cnt]) => `<button type="button" class="chip" data-law-cat="${k}" aria-pressed="${(k || null) === law.cat}">${esc(label)} <span class="muted">${cnt}</span></button>`).join('');
+    const raw = law.q.trim();
+    const qt = raw ? L.expand(L.tokens(raw)) : [];
+    const list = L.search(law.sec, law.cat, qt);
+    document.getElementById('law-count').textContent = raw ? (list.length ? `Найдено документов: ${list.length}` : '') : `Документов: ${list.length}`;
+    if (!list.length) {
+      const other = L.SECTIONS.filter((x) => x.key !== law.sec)[0];
+      const inOther = raw ? L.search(other.key, null, qt).length : 0;
+      box.innerHTML = `<div class="empty">По запросу «${esc(raw)}» здесь документов не нашлось. ${inOther
+        ? `Но в подразделе «${esc(other.label)}» найдено: ${inOther}. <button type="button" class="link-btn law-other" data-law-sec="${other.key}" data-keep-q="1">Показать</button>`
+        : 'Попробуйте другое слово или задайте вопрос ответственному сотруднику.'}</div>`;
+      return;
+    }
+    const hl = L.tokens(raw);
+    box.innerHTML = list.map(({ d }) => {
+      const meta = [d.kind, d.num, d.date ? (/^\d/.test(d.date) && d.date.length === 10 ? 'от ' + d.date : d.date) : ''].filter(Boolean).join(' ');
+      const cats = d.cat.filter((c) => L.catOf(c).sec === law.sec).map((c) => L.catOf(c).label).join(', ');
+      const url = /^https:\/\//.test(d.url || '') ? d.url : '';
+      return `<article class="law-doc">
+        <p class="law-doc__meta"><b>${esc(cats)}</b> · ${esc(meta)}</p>
+        <h3>${L.highlight(d.title, hl)}</h3>
+        <p class="small muted">${law.sec === 'acc' ? 'Что это значит на практике' : 'Что это значит для фармацевта'}</p>
+        <p>${L.highlight(d.means, hl)}</p>
+        ${d.warn ? `<p class="law-doc__warn">${esc(d.warn)}</p>` : ''}
+        <div class="law-doc__foot">
+          ${url ? `<a class="btn btn--primary btn--sm" href="${esc(url)}" target="_blank" rel="noopener">Открыть документ</a>` : '<span class="badge">Ссылка уточняется</span>'}
+          <span class="small muted">${d.checked ? 'Редакция сверена: ' + esc(d.checked) : 'Редакция не сверена'}</span>
+        </div>
+      </article>`;
+    }).join('');
+  }
+
+  /* ───────────── К кому обращаться ───────────── */
+  let teamTopic = null;
+  const teamPeople = () => ((window.TEAM && window.TEAM.PEOPLE) || []).filter((p) => p.name && p.name !== 'Имя Фамилия');
+  // Раздел появляется, когда заполнено хотя бы два человека
+  const teamReady = () => teamPeople().length >= 2;
+
+  function viewTeam() {
+    const people = teamPeople();
+    const topics = window.TEAM.TOPICS.filter((t) => people.some((p) => p.topics.indexOf(t.key) > -1));
+    const initials = (n) => n.split(/\s+/).slice(0, 2).map((w) => w.charAt(0)).join('').toUpperCase();
+    const safeLink = (u) => (/^(https:\/\/|tel:|mailto:)/.test(u || '') ? u : '');
+    return `
+      <div class="wrap team">
+        <div class="crumbs"><a href="#/">Главная</a> / К кому обращаться</div>
+        <h1>К кому обращаться</h1>
+        <p class="muted">Выберите тему вопроса — подсветим, кто в Вивафарм за неё отвечает.</p>
+        <div class="filters" role="group" aria-label="Тема вопроса"><span class="muted small team__label">Мой вопрос о…</span>
+          ${topics.map((t) => `<button type="button" class="chip" data-team-topic="${t.key}" aria-pressed="${teamTopic === t.key}">${esc(t.label)}</button>`).join('')}
+        </div>
+        <div class="team-grid">${people.map((p) => {
+          const match = teamTopic && p.topics.indexOf(teamTopic) > -1;
+          const link = safeLink(p.contact);
+          return `<article class="team-card ${teamTopic ? (match ? 'is-match' : 'is-dim') : ''}">
+            <div class="team-photo">${p.photo ? `<img src="${esc(p.photo)}" alt="${esc(p.name)}" loading="lazy">` : `<span aria-hidden="true">${esc(initials(p.name))}</span>`}</div>
+            <h3>${esc(p.name)}</h3>
+            <p class="muted small">${esc(p.role)}</p>
+            <span class="badge">${esc(p.dept)}</span>
+            <p class="team-card__text">${esc(p.text)}</p>
+            ${link ? `<a class="btn btn--ghost btn--sm" href="${esc(link)}" target="_blank" rel="noopener">Написать</a>` : ''}
+          </article>`;
+        }).join('')}</div>
       </div>`;
   }
 
@@ -970,6 +1156,8 @@
     else if (page === 'login' && mode === 'server') html = viewLogin();
     else if (page === 'register' && mode === 'server' && selfRegister) html = viewRegister();
     else if (page === 'courses') html = viewCourses();
+    else if (page === 'law') { html = viewLaw(id === 'buh' ? 'acc' : (id === 'pharm' ? 'pharm' : null)); }
+    else if (page === 'team' && teamReady()) html = viewTeam();
     else if (page === 'profile') html = viewProfile();
     else if (page === 'admin' && isAdmin()) html = viewAdmin();
     else if (page === 'verify' && id) html = viewVerify(decodeURIComponent(id));
@@ -980,7 +1168,10 @@
     else html = viewNotFound();
 
     if (page !== 'quiz') quiz = null;
+    stopPillars();
     app.innerHTML = html;
+    if (!page) startPillars();
+    if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
     if (page === 'admin' && isAdmin()) loadAdmin();
     if (page === 'verify' && id) loadVerify(decodeURIComponent(id));
@@ -1016,6 +1207,28 @@
     const t = e.target.closest('button');
     if (!t) return;
 
+    if (t.dataset.pillarBtn) {
+      stopPillars();
+      activatePillar(Number(t.dataset.pillarBtn));
+      return;
+    }
+    if (t.dataset.lawSec) {
+      law.sec = t.dataset.lawSec; law.cat = null;
+      if (!t.dataset.keepQ) law.q = '';
+      app.innerHTML = viewLaw(); renderLaw();
+      return;
+    }
+    if (t.dataset.lawCat !== undefined) { law.cat = t.dataset.lawCat || null; renderLaw(); return; }
+    if (t.dataset.lawHint) {
+      law.q = t.dataset.lawHint;
+      const box = document.getElementById('law-q'); box.value = law.q; renderLaw(); box.focus();
+      return;
+    }
+    if (t.dataset.teamTopic) {
+      teamTopic = teamTopic === t.dataset.teamTopic ? null : t.dataset.teamTopic;
+      app.innerHTML = viewTeam();
+      return;
+    }
     if (t.dataset.cat) {
       filter.cat = t.dataset.cat;
       document.querySelectorAll('.chip').forEach((ch) => ch.setAttribute('aria-pressed', ch.dataset.cat === filter.cat));
@@ -1073,7 +1286,18 @@
     }
   });
 
+  app.addEventListener('mouseover', (e) => {
+    const g = e.target.closest && e.target.closest('.pl-g');
+    if (g) { stopPillars(); activatePillar(Number(g.dataset.pillar)); }
+  });
+
   app.addEventListener('input', (e) => {
+    if (e.target.id === 'law-q') {
+      law.q = e.target.value;
+      clearTimeout(renderLaw.timer);
+      renderLaw.timer = setTimeout(renderLaw, 150);
+      return;
+    }
     if (e.target.classList.contains('search') && e.target.id !== 'admin-q') {
       filter.q = e.target.value;
       renderCourseGrid();
@@ -1104,6 +1328,7 @@
         const r = await call('login', { login: f.login.value, password: f.password.value });
         user = r.user;
         applyProgress(r.progress);
+        await refreshStats();
         location.hash = '#/';
         return;
       }
@@ -1114,6 +1339,7 @@
         });
         user = r.user;
         applyProgress(r.progress);
+        await refreshStats();
         toast('Кабинет создан. Добро пожаловать!');
         location.hash = '#/';
         return;
