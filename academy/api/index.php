@@ -634,8 +634,13 @@ switch ($action) {
             fail(404, 'not_found', 'Мероприятие не найдено.');
         }
         if (empty(input()['on'])) {
-            q('DELETE FROM event_regs WHERE event_id = ? AND user_id = ?', [$e['id'], $u['id']]);
-            json_out(['ok' => true]);
+            $was = q('DELETE FROM event_regs WHERE event_id = ? AND user_id = ?', [$e['id'], $u['id']])->rowCount();
+            $chat = $was ? tg_chat_of((int)$u['id']) : null;
+            if ($chat) {
+                tg_send($chat, event_text($e, '❌ <b>Вы отменили запись на мероприятие</b>')
+                    . "\n\n" . 'Напоминаний по нему больше не будет. Передумали — запишитесь снова: ' . site_url() . '#/events');
+            }
+            json_out(['ok' => true, 'telegram' => $chat !== null]);
         }
         if (event_ts($e) <= time()) {
             fail(422, 'closed', 'Регистрация закрыта: мероприятие уже началось.');

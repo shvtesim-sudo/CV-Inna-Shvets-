@@ -1741,7 +1741,7 @@
       try {
         const on = t.dataset.on === '1';
         const r = await call('event_register', { id: Number(t.dataset.evReg), on });
-        toast(on ? (r.telegram ? 'Вы записаны. Подтверждение пришло в Telegram' : 'Вы записаны') : 'Запись отменена');
+        toast(on ? (r.telegram ? 'Вы записаны. Подтверждение пришло в Telegram' : 'Вы записаны') : (r.telegram ? 'Запись отменена. Сообщение пришло в Telegram' : 'Запись отменена'));
         if (document.getElementById('home-event')) await loadHomeEvent(); else await loadEvents();
       } catch (err) { toast(err.message); t.disabled = false; }
       return;
