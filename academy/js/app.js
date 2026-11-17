@@ -64,7 +64,15 @@
 
   async function boot() {
     try {
-      const me = await call('me');
+      let me;
+      try {
+        me = await call('me');
+      } catch (first) {
+        // Разовый сбой сервера не должен включать демо-режим: пробуем ещё раз
+        if (!(first.status >= 500)) throw first;
+        await new Promise((r) => setTimeout(r, 800));
+        me = await call('me');
+      }
       if (await reloadIfOutdated(me.version)) return;
       mode = 'server';
       csrf = me.csrf;
@@ -78,6 +86,11 @@
         // API есть, но не готов (не настроена база или не запущен установщик)
         mode = 'error';
         bootError = e.code === 'server' ? 'Сервер личных кабинетов не готов. Если вы администратор, откройте api/install.php.' : e.message;
+        return;
+      }
+      if (e.status >= 500) {
+        mode = 'error';
+        bootError = 'Сервер временно не отвечает. Обновите страницу через минуту.';
         return;
       }
       mode = 'local';

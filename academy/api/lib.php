@@ -242,10 +242,18 @@ function setting(string $name, string $default = ''): string
     return $v === false ? $default : (string)$v;
 }
 
+// Безопасно при одновременных запросах: сначала обновляем, вставляем только если записи нет
 function set_setting(string $name, string $value): void
 {
-    q('DELETE FROM settings WHERE name = ?', [$name]);
-    q('INSERT INTO settings (name, value) VALUES (?, ?)', [$name, $value]);
+    if (q('SELECT 1 FROM settings WHERE name = ?', [$name])->fetchColumn()) {
+        q('UPDATE settings SET value = ? WHERE name = ?', [$value, $name]);
+        return;
+    }
+    try {
+        q('INSERT INTO settings (name, value) VALUES (?, ?)', [$name, $value]);
+    } catch (PDOException $e) {
+        q('UPDATE settings SET value = ? WHERE name = ?', [$value, $name]); // параллельный запрос успел вставить
+    }
 }
 
 /* ── HTTP ── */
