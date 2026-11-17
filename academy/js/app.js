@@ -682,10 +682,19 @@
   }
 
   /* ───────────── Личный кабинет ───────────── */
+  // Прежние тесты: сколько разных сдано (в прогрессе каждый весит как один курс)
+  const LEGACY_COUNT = (window.LEGACY_TESTS || []).length;
+  function legacyPassed(list) {
+    const n = new Set((list || []).filter((r) => r.passed).map((r) => r.test)).size;
+    return Math.min(n, LEGACY_COUNT || n);
+  }
+  function units() { return COURSES.length + LEGACY_COUNT; }
+
   function viewProfile() {
-    const total = COURSES.length;
+    const total = units();
     const passed = COURSES.filter(isPassed);
-    const overall = Math.round(COURSES.reduce((s, c) => s + courseProgress(c), 0) / total);
+    const extDone = legacyPassed(state.external);
+    const overall = Math.min(100, Math.round((COURSES.reduce((s, c) => s + courseProgress(c), 0) + extDone * 100) / total));
     const r = 60, circ = 2 * Math.PI * r;
     const rows = COURSES.map((c) => {
       const next = nextStepFor(c);
@@ -724,8 +733,8 @@
                 stroke-dasharray="${circ}" stroke-dashoffset="${circ * (1 - overall / 100)}" transform="rotate(-90 70 70)"/>
               <text x="70" y="78" text-anchor="middle" font-size="26" font-weight="700" fill="var(--text)" font-family="Onest, sans-serif">${overall}%</text>
             </svg>
-            <p style="text-align:center" class="muted">Сертификатов: <b>${passed.length}</b> из ${total}</p>
-            ${(state.external || []).length ? `<p style="text-align:center" class="muted small">Тестов до запуска Академии сдано: <b>${state.external.filter((r) => r.passed).length}</b> — список ниже, под курсами</p>` : ''}
+            <p style="text-align:center" class="muted">Сертификатов: <b>${passed.length + extDone}</b> из ${total}</p>
+            <p style="text-align:center" class="muted small">Курсы Академии: ${passed.length} из ${COURSES.length}${LEGACY_COUNT ? ` · прежние тесты: ${extDone} из ${LEGACY_COUNT}` : ''}</p>
             <form id="name-form">
               <div class="field">
                 <label for="name">Имя и фамилия для сертификата</label>
@@ -758,6 +767,7 @@
           <div class="grow"><b>${esc(r.test)}</b>
             <small class="muted">${r.date ? formatDate(r.date) : ''}${r.attempts > 1 ? ` · попыток: ${r.attempts}` : ''}${r.certNo ? ` · сертификат № ${esc(r.certNo)}` : ''}</small></div>
           <span class="badge ${r.passed ? 'badge--done' : 'badge--warn'}">${r.passed ? 'сдан' : 'не сдан'} · ${Math.round(r.score)}%${r.total ? ` (${r.correct} из ${r.total})` : ''}</span>
+          ${r.passed ? `<a class="btn btn--sm btn--primary" href="#/xcert/${encodeURIComponent(r.test)}">Сертификат</a>` : ''}
         </li>`).join('')}
       </ul>`;
   }
@@ -802,6 +812,47 @@
       </div>`;
   }
 
+  // Сертификат по тесту, сданному на прежнем сайте тестирования
+  function viewExtCertificate(test) {
+    const r = (state.external || []).find((x) => x.test === test && x.passed);
+    if (!r) {
+      return `
+        <div class="wrap narrow">
+          <div class="crumbs"><a href="#/profile">Личный кабинет</a> / Сертификат</div>
+          <div class="quiz result"><h2>Сертификат не найден</h2>
+          <p class="muted">Этот тест не отмечен как сданный в вашем кабинете.</p>
+          <a class="btn btn--primary" href="#/profile">В личный кабинет</a></div>
+        </div>`;
+    }
+    const nameBlock = user.name
+      ? `<div class="name">${esc(user.name)}</div>`
+      : `<form id="name-form" class="no-print" style="max-width:360px;margin:16px auto">
+           <div class="field"><label for="name">Введите имя и фамилию</label><input id="name" name="name" maxlength="80" autocomplete="name" required></div>
+           <div class="form-msg"></div>
+           <button class="btn btn--primary">Показать на сертификате</button>
+         </form>`;
+    const verifyUrl = r.certNo ? `${location.origin}${location.pathname}#/verify/${encodeURIComponent(r.certNo)}` : '';
+    return `
+      <div class="wrap cert-wrap">
+        <div class="crumbs no-print"><a href="#/profile">Личный кабинет</a> / Сертификат</div>
+        <div class="cert">
+          <div class="logo" style="justify-content:center"><img class="logo__img" src="img/logo-vivafarm.svg" alt="Вивафарм" width="125" height="54"><span class="logo__divider" aria-hidden="true"></span><span class="logo__text">ВИВА<b>АКАДЕМИЯ</b></span></div>
+          <h1>Сертификат</h1>
+          <p>подтверждает, что</p>
+          ${nameBlock}
+          <p>успешно прошёл(а) тестирование</p>
+          <div class="course">«${esc(r.test)}»</div>
+          <p>Результат: <b>${Math.round(r.score)}%</b>${r.total ? ` · верных ответов: ${r.correct} из ${r.total}` : ''}</p>
+          <div class="cert__foot"><span>Дата: ${r.date ? formatDate(r.date) : '—'}</span>${r.certNo ? `<span>№ ${esc(r.certNo)}</span>` : ''}</div>
+          ${verifyUrl && mode === 'server' ? `<p class="cert__verify">Проверить подлинность: ${esc(verifyUrl)}</p>` : ''}
+        </div>
+        <div class="btn-row no-print" style="justify-content:center">
+          <button class="btn btn--primary" data-print>Печать / Сохранить в PDF</button>
+          <a class="btn btn--ghost" href="#/profile">Личный кабинет</a>
+        </div>
+      </div>`;
+  }
+
   function viewVerify(id) {
     return `<div class="wrap narrow"><div class="quiz result" id="verify" style="margin-top:32px"><p class="muted">Проверяем сертификат № ${esc(id)}…</p></div></div>`;
   }
@@ -836,7 +887,8 @@
       sum += done / (c.lessons.length + 1);
       if (u.quiz[c.id] && u.quiz[c.id].passed) certs++;
     });
-    return { progress: Math.round((sum / COURSES.length) * 100), certs };
+    const ext = legacyPassed(u.external);
+    return { progress: Math.min(100, Math.round(((sum + ext) / units()) * 100)), certs: certs + ext, ext };
   }
 
   function viewAdmin() {
@@ -900,7 +952,7 @@
         <td><button class="link-btn" data-user-open="${u.id}" aria-expanded="${admin.open === u.id}"><b>${esc(u.name)}</b></button><small>${esc(u.login)}${u.role === 'admin' ? ' · администратор' : ''}${u.active ? '' : ' · заблокирован'}</small></td>
         <td>${esc(u.branch) || '—'}<small>${esc(u.position)}</small></td>
         <td class="t-progress"><span>${u.progress}%</span>${progressBar(u.progress)}</td>
-        <td class="t-num">${u.certs} / ${COURSES.length}${(u.external || []).length ? `<small>архив: ${u.external.filter((r) => r.passed).length} сдано</small>` : ''}</td>
+        <td class="t-num">${u.certs} / ${units()}${u.ext ? `<small>в т. ч. прежних тестов: ${u.ext}</small>` : ''}</td>
         <td class="t-num">${formatDateTime(u.lastLogin)}</td>
         <td class="t-actions"><button class="btn btn--ghost btn--sm" data-user-edit="${u.id}">Изменить</button></td>
       </tr>
@@ -1237,6 +1289,7 @@
     else if (page === 'profile') html = viewProfile();
     else if (page === 'admin' && isAdmin()) html = viewAdmin();
     else if (page === 'verify' && id) html = viewVerify(decodeURIComponent(id));
+    else if (page === 'xcert' && id) { html = viewExtCertificate(decodeURIComponent(id)); nav = 'profile'; }
     else if (c && page === 'course') { html = viewCourse(c); nav = 'courses'; }
     else if (c && page === 'lesson') { html = viewLesson(c, parseInt(n, 10)); nav = 'courses'; }
     else if (c && page === 'quiz') { html = viewQuiz(c); nav = 'courses'; }
@@ -1436,7 +1489,7 @@
           user.name = name;
           saveLocal();
         }
-        if (location.hash.startsWith('#/certificate')) route();
+        if (/^#\/(certificate|xcert)/.test(location.hash)) route();
         toast('Данные сохранены');
       }
       if (formId === 'password-form') {
