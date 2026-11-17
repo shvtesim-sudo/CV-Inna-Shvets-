@@ -1041,3 +1041,52 @@ a { color: var(--primary); }
 .install-card .grow { flex: 1; min-width: 0; }
 .install-card p { margin: 2px 0 0; }
 @media (max-width: 860px) { .today-grid { grid-template-columns: 1fr; } }
+
+/* ═══════════ Шлифовка визуала ═══════════ */
+/* Узкие страницы (урок, тест, проверка) остаются узкими и при меню слева — удобная длина строки */
+body.logged-in .wrap.narrow { max-width: 780px; }
+
+/* Мягкое появление страницы при переходе */
+#app > * { animation: page-in .22s ease-out; }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #app > * { animation: none; } }
+
+/* Касания: без синей вспышки, с лёгким откликом */
+a, button { -webkit-tap-highlight-color: transparent; }
+.btn:active, .chip:active, .tabbar a:active, .option:active { transform: scale(.97); }
+.btn, .chip, .option { transition: transform .08s ease, background-color .15s, border-color .15s, color .15s; }
+
+/* Нижняя панель: активная вкладка — «пилюля» под значком */
+@media (max-width: 1100px) {
+  .tabbar .ico { padding: 3px 14px; width: 52px; height: 30px; border-radius: 999px; box-sizing: border-box; transition: background-color .2s; }
+  .tabbar a.active .ico { background: color-mix(in srgb, var(--brand) 16%, transparent); }
+}
+
+/* Подвал для вошедших: коротко, без дублирования меню */
+body.logged-in .footer { padding: 18px 0 22px; background: transparent; color: var(--muted); border-top: 1px solid var(--border); }
+body.logged-in .footer__col { display: none; }
+body.logged-in .footer__inner { display: block; }
+body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--muted); font-size: .78rem; margin: 0 0 6px; max-width: 80ch; border: 0; padding: 0; }
+
+@media (max-width: 720px) {
+  /* Заголовки поскромнее */
+  h1 { font-size: clamp(1.55rem, 7vw, 1.9rem); }
+  .course-head h1 { font-size: 1.6rem; }
+  .course-head .card__icon { width: 48px; height: 48px; font-size: 1.6rem; }
+  /* «Хлебные крошки» — одна строка */
+  .crumbs { margin: 14px 0 10px; font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Фильтры и подсказки — лента с прокруткой вбок вместо столбца */
+  .filters, .law-hints {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    margin-left: -16px; margin-right: -16px; padding: 2px 16px 6px; border-bottom: 0;
+  }
+  .filters::-webkit-scrollbar, .law-hints::-webkit-scrollbar { display: none; }
+  .filters > *, .law-hints > * { flex: none; white-space: nowrap; }
+  .law-tabs { display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; }
+  .law-tab { padding: 9px 6px; font-size: .82rem; line-height: 1.2; text-align: center; }
+  /* Обложка материала ниже */
+  .mat-cover { aspect-ratio: auto; min-height: 92px; }
+  /* Карточки поплотнее */
+  .today-card, .panel { padding: 16px; }
+  .section { margin-top: 28px; }
+}
