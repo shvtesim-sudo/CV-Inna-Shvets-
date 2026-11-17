@@ -4,6 +4,7 @@
 
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
+require __DIR__ . '/notify.php';
 
 set_exception_handler(function (Throwable $e) {
     error_log('[viva-academy] ' . $e->getMessage());
@@ -14,6 +15,24 @@ start_session();
 migrate();
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'];
+
+// Вебхук Telegram: проверяется секрет, который сайт передал боту при подключении
+if ($action === 'tg_webhook') {
+    $secret = setting('tg_secret');
+    if ($secret === '' || !hash_equals($secret, (string)($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? ''))) {
+        fail(403, 'forbidden', 'Нет доступа.');
+    }
+    $upd = json_decode(file_get_contents('php://input') ?: '', true);
+    if (is_array($upd)) {
+        tg_handle_update($upd);
+    }
+    json_out(['ok' => true]);
+}
+
+// Регулярные задачи (напоминания, объявления о новых курсах). Безопасно вызывать часто: работа идёт не чаще раза в минуту.
+if ($action === 'cron') {
+    json_out(['ok' => true] + notify_tick());
+}
 
 // Публичная проверка сертификата
 if ($action === 'cert') {
@@ -48,6 +67,13 @@ if ($action === 'cert') {
 }
 
 if ($action === 'me') {
+    // Попутно — напоминания и объявления (после ответа, если сервер это умеет)
+    register_shutdown_function(function () {
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        }
+        notify_tick();
+    });
     try {
         $u = current_user();
         $selfRegister = setting('invite_code') !== '';
@@ -107,6 +133,31 @@ if ($action === 'material_file') {
         flush();
     }
     exit;
+}
+
+// Афиша мероприятий
+if ($action === 'events') {
+    $u = require_user();
+    $up = q('SELECT * FROM events WHERE starts_at > ? ORDER BY starts_at', [gmdate('Y-m-d H:i:s', time() - 3 * 3600)])->fetchAll();
+    $past = q('SELECT * FROM events WHERE starts_at <= ? ORDER BY starts_at DESC LIMIT 10', [gmdate('Y-m-d H:i:s', time() - 3 * 3600)])->fetchAll();
+    $row = function ($e) use ($u) {
+        return event_row($e, (int)$u['id']);
+    };
+    json_out(['upcoming' => array_map($row, $up), 'past' => array_map($row, $past),
+              'telegram' => ['bot' => setting('tg_bot'), 'linked' => tg_chat_of((int)$u['id']) !== null]]);
+}
+if ($action === 'event_regs') {
+    require_viewer();
+    $rows = q('SELECT u.name, u.login, u.branch, r.created_at, t.chat_id FROM event_regs r JOIN users u ON u.id = r.user_id
+               LEFT JOIN tg_links t ON t.user_id = r.user_id WHERE r.event_id = ? ORDER BY u.branch, u.name', [(int)($_GET['id'] ?? 0)])->fetchAll();
+    json_out(['people' => array_map(function ($r) {
+        return ['name' => $r['name'], 'login' => $r['login'], 'branch' => $r['branch'], 'at' => $r['created_at'], 'tg' => $r['chat_id'] !== null];
+    }, $rows)]);
+}
+if ($action === 'tg_status') {
+    $u = require_user();
+    $bot = setting('tg_bot');
+    json_out(['bot' => $bot, 'linked' => tg_chat_of((int)$u['id']) !== null, 'link' => $bot !== '' ? tg_link_for((int)$u['id']) : null]);
 }
 
 // Топ-10 по результатам тестов — для всех вошедших сотрудников
@@ -293,7 +344,9 @@ switch ($action) {
                 'external' => $ext[$r['id']] ?? [],
             ];
         }
-        json_out(['users' => $users, 'inviteCode' => $viewer['role'] === 'admin' ? setting('invite_code') : '']);
+        json_out(['users' => $users, 'inviteCode' => $viewer['role'] === 'admin' ? setting('invite_code') : '',
+                  'telegram' => ['bot' => setting('tg_bot'),
+                                 'linked' => (int)q('SELECT COUNT(*) FROM tg_links WHERE chat_id IS NOT NULL')->fetchColumn()]]);
 
     case 'admin_user_save':
         $me = require_admin();
@@ -540,6 +593,10 @@ switch ($action) {
         }
         q('INSERT INTO materials (title, brand, category, description, course_id, file, original_name, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
           array_merge($fields, [$token, str_in('name', 200), $size, now()]));
+        if (!empty(input()['announce'])) {
+            tg_broadcast('📚 <b>Новый учебный материал</b>' . "\n\n" . h($title) . ($fields[1] !== '' ? ' · ' . h($fields[1]) : '')
+                . "\n\n" . 'Открыть: ' . site_url() . '#/materials');
+        }
         // Части брошенных загрузок старше суток
         q('DELETE FROM material_chunks WHERE created_at < ? AND upload NOT IN (SELECT file FROM materials)', [gmdate('Y-m-d H:i:s', time() - 86400)]);
         json_out(['ok' => true]);
@@ -552,6 +609,121 @@ switch ($action) {
             q('DELETE FROM materials WHERE id = ?', [(int)(input()['id'] ?? 0)]);
         }
         json_out(['ok' => true]);
+
+    /* ── Telegram и афиша ── */
+
+    case 'tg_unlink':
+        $u = require_user();
+        q('UPDATE tg_links SET chat_id = NULL WHERE user_id = ?', [$u['id']]);
+        json_out(['ok' => true]);
+
+    case 'event_register':
+        $u = require_user();
+        $e = q('SELECT * FROM events WHERE id = ?', [(int)(input()['id'] ?? 0)])->fetch();
+        if (!$e) {
+            fail(404, 'not_found', 'Мероприятие не найдено.');
+        }
+        if (empty(input()['on'])) {
+            q('DELETE FROM event_regs WHERE event_id = ? AND user_id = ?', [$e['id'], $u['id']]);
+            json_out(['ok' => true]);
+        }
+        if (event_ts($e) <= time()) {
+            fail(422, 'closed', 'Регистрация закрыта: мероприятие уже началось.');
+        }
+        $already = q('SELECT 1 FROM event_regs WHERE event_id = ? AND user_id = ?', [$e['id'], $u['id']])->fetchColumn();
+        if (!$already) {
+            if ((int)$e['capacity'] > 0 && (int)q('SELECT COUNT(*) FROM event_regs WHERE event_id = ?', [$e['id']])->fetchColumn() >= (int)$e['capacity']) {
+                fail(409, 'full', 'Мест больше нет.');
+            }
+            // Если до начала меньше суток — суточное напоминание не нужно, хватит подтверждения
+            $soon = event_ts($e) - time() <= 86400 ? 1 : 0;
+            q('INSERT INTO event_regs (event_id, user_id, created_at, reminded) VALUES (?, ?, ?, ?)', [$e['id'], $u['id'], now(), $soon]);
+            $chat = tg_chat_of((int)$u['id']);
+            if ($chat) {
+                $text = event_text($e, '✅ <b>Вы записаны на мероприятие</b>') . ($e['link'] !== '' ? "\n" . '🔗 ' . h($e['link']) : '')
+                    . "\n\n" . 'Напомню накануне и примерно за час до начала.';
+                tg_send($chat, $text);
+            }
+        }
+        json_out(['ok' => true, 'telegram' => tg_chat_of((int)$u['id']) !== null]);
+
+    case 'admin_event_save':
+        require_admin();
+        $id = (int)(input()['id'] ?? 0);
+        $title = str_in('title', 200);
+        $local = str_in('local', 20);
+        $dt = DateTime::createFromFormat('Y-m-d\TH:i', $local, new DateTimeZone(TZ_LOCAL));
+        if ($title === '' || !$dt) {
+            fail(422, 'invalid', 'Укажите название, дату и время.');
+        }
+        $dt->setTimezone(new DateTimeZone('UTC'));
+        $link = str_in('link', 300);
+        if ($link !== '' && !preg_match('~^https?://~i', $link)) {
+            fail(422, 'invalid', 'Ссылка должна начинаться с https://');
+        }
+        $vals = [$title, str_in('speaker', 200), str_in('description', 3000), str_in('place', 200), $link,
+                 $dt->format('Y-m-d H:i:s'), max(0, (int)(input()['duration'] ?? 60)), max(0, (int)(input()['capacity'] ?? 0))];
+        if ($id) {
+            $old = q('SELECT starts_at FROM events WHERE id = ?', [$id])->fetchColumn();
+            q('UPDATE events SET title = ?, speaker = ?, description = ?, place = ?, link = ?, starts_at = ?, duration = ?, capacity = ? WHERE id = ?', array_merge($vals, [$id]));
+            if ($old !== false && $old !== $vals[5]) {
+                q('UPDATE event_regs SET reminded = 0 WHERE event_id = ?', [$id]); // перенесли — напомним заново
+            }
+        } else {
+            q('INSERT INTO events (title, speaker, description, place, link, starts_at, duration, capacity, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', array_merge($vals, [now()]));
+            $id = (int)db()->lastInsertId();
+        }
+        $sent = 0;
+        if (!empty(input()['announce'])) {
+            $e = q('SELECT * FROM events WHERE id = ?', [$id])->fetch();
+            $sent = tg_broadcast(event_text($e, '📣 <b>' . (empty(input()['id']) ? 'Новое мероприятие в ВИВААКАДЕМИИ' : 'Мероприятие в ВИВААКАДЕМИИ') . '</b>')
+                . "\n\n" . 'Записаться: ' . site_url() . '#/events');
+        }
+        json_out(['ok' => true, 'sent' => $sent]);
+
+    case 'admin_event_delete':
+        require_admin();
+        q('DELETE FROM event_regs WHERE event_id = ?', [(int)(input()['id'] ?? 0)]);
+        q('DELETE FROM events WHERE id = ?', [(int)(input()['id'] ?? 0)]);
+        json_out(['ok' => true]);
+
+    // Подключение бота: токен от @BotFather. Сайт сам проверяет его и настраивает вебхук.
+    case 'admin_tg_setup':
+        require_admin();
+        $token = trim(str_in('token', 100));
+        if ($token === '') {
+            if (tg_token() !== '') {
+                tg_api('deleteWebhook');
+            }
+            foreach (['tg_token', 'tg_bot', 'tg_secret'] as $k) {
+                set_setting($k, '');
+            }
+            json_out(['ok' => true, 'bot' => '']);
+        }
+        if (!preg_match('/^\d{5,15}:[A-Za-z0-9_-]{30,60}$/', $token)) {
+            fail(422, 'invalid', 'Это не похоже на токен бота. Скопируйте его из сообщения @BotFather целиком.');
+        }
+        $me = tg_api('getMe', [], $token);
+        if (!$me || empty($me['username'])) {
+            fail(422, 'invalid', 'Telegram не принял токен. Проверьте, что он скопирован полностью, или выпустите новый в @BotFather.');
+        }
+        $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+        $base = ($https ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . rtrim(dirname(dirname($_SERVER['SCRIPT_NAME'])), '/') . '/';
+        $secret = bin2hex(random_bytes(24));
+        $hook = tg_api('setWebhook', ['url' => $base . 'api/index.php?action=tg_webhook', 'secret_token' => $secret,
+                                      'allowed_updates' => ['message'], 'drop_pending_updates' => true], $token);
+        if (!$hook) {
+            fail(502, 'telegram', 'Бот найден, но Telegram не смог подключить адрес сайта. Сайт должен открываться по https.');
+        }
+        tg_api('setMyCommands', ['commands' => [
+            ['command' => 'afisha', 'description' => 'Ближайшие мероприятия'],
+            ['command' => 'stop', 'description' => 'Отключить уведомления'],
+        ]], $token);
+        set_setting('tg_token', $token);
+        set_setting('tg_bot', $me['username']);
+        set_setting('tg_secret', $secret);
+        set_setting('site_url', $base);
+        json_out(['ok' => true, 'bot' => $me['username']]);
 
     default:
         fail(404, 'unknown', 'Неизвестное действие.');
