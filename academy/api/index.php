@@ -194,7 +194,7 @@ switch ($action) {
     /* ── Администрирование ── */
 
     case 'admin_users':
-        require_admin();
+        $viewer = require_viewer();
         $lessons = [];
         foreach (q('SELECT user_id, course_id, COUNT(*) AS n FROM lesson_progress GROUP BY user_id, course_id') as $r) {
             $lessons[$r['user_id']][$r['course_id']] = (int)$r['n'];
@@ -231,14 +231,14 @@ switch ($action) {
                 'external' => $ext[$r['id']] ?? [],
             ];
         }
-        json_out(['users' => $users, 'inviteCode' => setting('invite_code')]);
+        json_out(['users' => $users, 'inviteCode' => $viewer['role'] === 'admin' ? setting('invite_code') : '']);
 
     case 'admin_user_save':
         $me = require_admin();
         $id = (int)(input()['id'] ?? 0);
         $login = mb_strtolower(str_in('login'));
         $name = str_in('name');
-        $role = str_in('role') === 'admin' ? 'admin' : 'user';
+        $role = in_array(str_in('role'), ['admin', 'manager'], true) ? str_in('role') : 'user';
         $active = !empty(input()['active']) ? 1 : 0;
         $password = (string)(input()['password'] ?? '');
         if (!valid_login($login) || $name === '') {
@@ -379,7 +379,7 @@ switch ($action) {
         json_out(['ok' => true]);
 
     case 'admin_export':
-        require_admin();
+        require_viewer();
         $list = courses();
         $lessons = [];
         foreach (q('SELECT user_id, course_id, COUNT(*) AS n FROM lesson_progress GROUP BY user_id, course_id') as $r) {

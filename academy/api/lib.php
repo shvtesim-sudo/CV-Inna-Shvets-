@@ -276,6 +276,16 @@ function require_admin(): array
     return $u;
 }
 
+// Администратор или руководитель (руководитель только смотрит результаты)
+function require_viewer(): array
+{
+    $u = require_user();
+    if ($u['role'] !== 'admin' && $u['role'] !== 'manager') {
+        fail(403, 'forbidden', 'Доступно только руководителям.');
+    }
+    return $u;
+}
+
 function public_user(array $u): array
 {
     return [
