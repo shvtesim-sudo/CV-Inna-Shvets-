@@ -131,11 +131,19 @@ function schema(): array
             size INT NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL
         )$tail",
+        // Содержимое файлов материалов частями по 512 КБ (хранится в базе — не нужны права записи на диск)
+        "CREATE TABLE IF NOT EXISTS material_chunks (
+            upload VARCHAR(32) NOT NULL,
+            idx INT NOT NULL,
+            data " . ($sqlite ? 'BLOB' : 'MEDIUMBLOB') . " NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (upload, idx)
+        )$tail",
     ];
 }
 
 // Новые таблицы для уже установленной платформы: создаются один раз при первом запросе
-const SCHEMA_VERSION = '3';
+const SCHEMA_VERSION = '4';
 function migrate(): void
 {
     try {
@@ -406,20 +414,21 @@ function rating(): array
 
 /* ── Учебные материалы ── */
 
-// Папка с файлами вне git и вне выкладки (data/ не перезаписывается при обновлении сайта).
-// Имена файлов случайные, прямой доступ закрыт .htaccess — файлы отдаёт только API вошедшим.
-function materials_dir(): string
+// Файлы материалов хранятся в базе (таблица material_chunks): хостингу не нужны права записи на диск,
+// а файлы попадают в резервную копию вместе с базой. materials.file — ключ загрузки.
+function put_chunk(string $upload, int $idx, string $data): void
 {
-    $dir = config()['materials_dir'] ?? (__DIR__ . '/../data/materials');
-    if ((!is_dir($dir) && !@mkdir($dir, 0750, true) && !is_dir($dir)) || !is_writable($dir)) {
-        fail(500, 'storage', 'Сервер не может сохранить файл: нужна папка data/materials с правом записи для PHP. '
-            . 'Попросите системного администратора создать её (см. docs/DEPLOY.md, раздел «Учебные материалы»).');
-    }
-    if (!is_file($dir . '/.htaccess')) {
-        file_put_contents($dir . '/.htaccess', "Require all denied\nOptions -Indexes\n");
-        file_put_contents($dir . '/index.html', '');
-    }
-    return $dir;
+    $st = db()->prepare('INSERT INTO material_chunks (upload, idx, data, created_at) VALUES (?, ?, ?, ?)');
+    $st->bindValue(1, $upload);
+    $st->bindValue(2, $idx, PDO::PARAM_INT);
+    $st->bindValue(3, $data, PDO::PARAM_LOB);
+    $st->bindValue(4, now());
+    $st->execute();
+}
+
+function chunk_data($v): string
+{
+    return is_resource($v) ? (string)stream_get_contents($v) : (string)$v;
 }
 
 function material_row(array $r): array

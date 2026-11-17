@@ -646,12 +646,12 @@
     }
   }
 
-  // Файл уходит на сервер частями по 768 КБ: так не мешают ограничения хостинга на размер запроса
+  // Файл уходит на сервер частями по 512 КБ: так не мешают ограничения хостинга на размер запроса
   async function uploadPdf(file, onProgress) {
     const head = new Uint8Array(await file.slice(0, 5).arrayBuffer());
     if (String.fromCharCode(...head) !== '%PDF-') throw new Error('Это не PDF-файл. Сохраните презентацию в PDF и загрузите снова.');
     const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
-    const size = 768 * 1024;
+    const size = 512 * 1024;
     for (let i = 0, off = 0; off < file.size; i++, off += size) {
       const buf = new Uint8Array(await file.slice(off, off + size).arrayBuffer());
       let bin = '';
