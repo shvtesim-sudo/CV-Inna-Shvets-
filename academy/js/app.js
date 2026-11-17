@@ -1285,6 +1285,7 @@
       ${admin.open === u.id ? `<tr class="detail-row"><td colspan="6">${userDetail(u)}</td></tr>` : ''}`).join('');
 
     body.innerHTML = `
+      ${isAdmin() && !(admin.telegram && admin.telegram.bot) ? tgAdminPanel(staff, true) : ''}
       <div class="stats">
         <div class="stat"><b>${staff.length}</b><span>сотрудников</span></div>
         <div class="stat"><b>${activeWeek}</b><span>заходили за 7 дней</span></div>
@@ -1320,17 +1321,7 @@
               <li><button class="link-btn" data-branch="${esc(x.b)}">${esc(x.b)}</button><small>${x.n} ${plural(x.n, 'сотрудник', 'сотрудника', 'сотрудников')} · ${x.avg}%</small>${progressBar(x.avg)}</li>`).join('')}</ul>`
               : '<p class="muted small">Укажите сотрудникам аптеку — здесь появится сводка.</p>'}
           </div>
-          ${isAdmin() ? `<div class="panel">
-            <h3>Telegram-бот</h3>
-            ${admin.telegram && admin.telegram.bot
-              ? `<p class="small">Подключён: <b>@${esc(admin.telegram.bot)}</b><br><span class="muted">Сотрудников с уведомлениями: ${admin.telegram.linked} из ${staff.length}</span></p>`
-              : '<p class="muted small">Создайте бота в @BotFather (команда /newbot), скопируйте токен и вставьте сюда.</p>'}
-            <form id="tg-form">
-              <div class="field"><label for="tg-token">${admin.telegram && admin.telegram.bot ? 'Новый токен (если меняете бота)' : 'Токен бота'}</label><input id="tg-token" name="token" autocomplete="off" placeholder="123456789:AA…"></div>
-              <div class="form-msg"></div>
-              <button class="btn btn--ghost btn--sm btn--block">${admin.telegram && admin.telegram.bot ? 'Заменить бота' : 'Подключить бота'}</button>
-            </form>
-          </div>` : ''}
+          ${isAdmin() && admin.telegram && admin.telegram.bot ? tgAdminPanel(staff) : ''}
           ${isAdmin() ? `<div class="panel">
             <h3>Самостоятельная регистрация</h3>
             <form id="invite-form">
@@ -1342,6 +1333,22 @@
           </div>` : ''}
         </div>
       </div>`;
+  }
+
+  // Настройка Telegram-бота. Пока бот не подключён — заметный блок над сводкой, потом — компактная панель сбоку.
+  function tgAdminPanel(staff, top) {
+    const t = admin.telegram || {};
+    return `<div class="panel${top ? ' tg-setup' : ''}">
+            <h3>${top ? '✈️ Подключите Telegram-бота' : 'Telegram-бот'}</h3>
+            ${t.bot
+              ? `<p class="small">Подключён: <b>@${esc(t.bot)}</b><br><span class="muted">Сотрудников с уведомлениями: ${t.linked} из ${staff.length}</span></p>`
+              : '<p class="muted small">Бот присылает сотрудникам новые тесты, анонсы мероприятий и напоминания о записи. В Telegram откройте @BotFather, отправьте /newbot, придумайте имя и адрес бота (должен заканчиваться на bot) — BotFather пришлёт токен. Вставьте его сюда.</p>'}
+            <form id="tg-form">
+              <div class="field"><label for="tg-token">${t.bot ? 'Новый токен (если меняете бота)' : 'Токен бота'}</label><input id="tg-token" name="token" autocomplete="off" placeholder="123456789:AA…"></div>
+              <div class="form-msg"></div>
+              <button class="btn ${t.bot ? 'btn--ghost' : 'btn--primary'} btn--sm${top ? '' : ' btn--block'}">${t.bot ? 'Заменить бота' : 'Подключить бота'}</button>
+            </form>
+          </div>`;
   }
 
   function userDetail(u) {
