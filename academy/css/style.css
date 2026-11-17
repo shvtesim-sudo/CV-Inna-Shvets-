@@ -929,3 +929,11 @@ a { color: var(--primary); }
   .ev-date b { font-size: 1.3rem; } .ev-date span, .ev-date small { margin: 0; padding: 0; border: 0; }
   .tg-banner { flex-wrap: wrap; }
 }
+
+/* Кабинет руководителя: таблица не распирает колонку на телефоне; блок подключения бота */
+.admin-grid > * { min-width: 0; }
+.tg-setup { margin-bottom: 20px; border-color: var(--accent); }
+.tg-setup h3 { margin-top: 0; }
+.tg-setup form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.tg-setup .field { flex: 1 1 260px; margin: 0; }
+.tg-setup .form-msg { flex-basis: 100%; }
