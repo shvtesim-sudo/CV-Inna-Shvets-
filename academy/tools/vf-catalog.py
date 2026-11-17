@@ -36,10 +36,19 @@ for cat in cats:
         time.sleep(0.35)
     print(f'{title}: {sum(1 for i in items if i["c"] == title)}', file=sys.stderr)
 
+# Компактный формат: разделы — списком, товары — [название, путь без общего префикса, № раздела, МНН]
+PREFIX = '/catalog/lekarstva_i_bady/'
+NOT_MNN = re.compile(r'^(БАД|бад|б/сах.*|без сахара|.*мл|.*таб.*|\d.*)$')
+cat_list = sorted(set(i['c'] for i in items))
+rows = []
+for i in items:
+    mnn = '' if NOT_MNN.match(i['m']) else i['m']
+    rows.append([i['n'], i['u'][len(PREFIX):] if i['u'].startswith(PREFIX) else i['u'], cat_list.index(i['c']), mnn])
 out = os.path.join(os.path.dirname(__file__), '..', 'js', 'assortment.js')
 with open(out, 'w', encoding='utf-8') as f:
     f.write('// Снимок каталога vivafarm.md (раздел «Лекарства и БАДы») от ' + time.strftime('%d.%m.%Y') +
             '. Сгенерировано tools/vf-catalog.py — не редактируйте вручную.\n')
-    f.write('window.ASSORTMENT = {date: ' + json.dumps(time.strftime('%d.%m.%Y')) + ', items: ' +
-            json.dumps(items, ensure_ascii=False, separators=(',', ':')) + '};\n')
+    f.write('window.ASSORTMENT = {date: ' + json.dumps(time.strftime('%d.%m.%Y')) + ', base: ' + json.dumps(BASE + PREFIX) +
+            ', cats: ' + json.dumps(cat_list, ensure_ascii=False) + ', rows: ' +
+            json.dumps(rows, ensure_ascii=False, separators=(',', ':')) + '};\n')
 print(f'{len(items)} товаров → js/assortment.js', file=sys.stderr)

@@ -703,7 +703,7 @@
     await loadAssortment();
     const dl = document.getElementById('drug-list');
     if (dl && window.ASSORTMENT) {
-      const mnn = Array.from(new Set(window.ASSORTMENT.items.map((i) => i.m).filter((m) => m && m.length < 60))).sort((a, b) => a.localeCompare(b, 'ru'));
+      const mnn = Array.from(new Set(window.ASSORTMENT.rows.map((r) => r[3]).filter((m) => m && m.length < 60))).sort((a, b) => a.localeCompare(b, 'ru'));
       dl.innerHTML = mnn.map((m) => `<option value="${esc(m)}">`).join('');
     }
     renderDrugs();
@@ -732,7 +732,8 @@
     }));
     // Каталог Вивафарм (снимок)
     const A = window.ASSORTMENT;
-    const items = A ? A.items.filter((it) => norm(it.n).includes(q) || norm(it.m).includes(q)) : [];
+    const items = A ? A.rows.filter((r) => norm(r[0]).includes(q) || norm(r[3]).includes(q))
+      .map((r) => ({ n: r[0], u: A.base + r[1], c: A.cats[r[2]], m: r[3] })) : [];
     const src = DRUG_SOURCES.map((s) => `<a class="btn btn--ghost btn--sm" href="${esc(s.url(raw))}" target="_blank" rel="noopener">${esc(s.name)} ↗<small>${esc(s.note)}</small></a>`).join('');
     box.innerHTML = `
       <section class="drug-sec">
@@ -749,7 +750,7 @@
       <section class="drug-sec">
         <h2>В каталоге Вивафарм <span class="muted">${A ? items.length : '…'}</span></h2>
         ${!A ? '<p class="muted small">Загружаем каталог…</p>' : items.length ? `<ul class="drug-items">${items.slice(0, 60).map((it) => `
-          <li><a href="https://vivafarm.md${esc(it.u)}" target="_blank" rel="noopener">${esc(it.n)}</a><small>${esc(it.c)}${it.m ? ' · МНН: ' + esc(it.m) : ''}</small></li>`).join('')}</ul>
+          <li><a href="${esc(it.u)}" target="_blank" rel="noopener">${esc(it.n)}</a><small>${esc(it.c)}${it.m ? ' · МНН: ' + esc(it.m) : ''}</small></li>`).join('')}</ul>
           ${items.length > 60 ? `<p class="muted small">Показаны первые 60 из ${items.length}. Уточните запрос.</p>` : ''}`
           : '<p class="muted small">В каталоге не найдено. Проверьте написание или поищите по торговому названию.</p>'}
         ${A ? `<p class="muted small">Снимок каталога vivafarm.md от ${esc(A.date)}. Это не остатки: наличие и цену уточняйте в программе аптеки.</p>` : ''}
