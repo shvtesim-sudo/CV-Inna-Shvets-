@@ -134,7 +134,7 @@ img { max-width: 100%; }
 .menu-btn { display: none; background: none; border: 0; padding: 8px; cursor: pointer; }
 .menu-btn span { display: block; width: 22px; height: 2px; background: var(--text); margin: 5px 0; border-radius: 2px; }
 
-@media (max-width: 720px) {
+@media (max-width: 1180px) {
   .menu-btn { display: block; }
   .nav {
     position: absolute; top: 64px; left: 0; right: 0;
@@ -460,7 +460,7 @@ a { color: var(--primary); }
 .nav a:hover, .nav-logout:hover { background: none; color: var(--brand); }
 .nav a.active { background: none; color: var(--brand); box-shadow: inset 0 -2px 0 var(--brand); }
 .theme-btn { border-radius: 4px; }
-@media (max-width: 720px) {
+@media (max-width: 1180px) {
   .nav { top: 76px; }
   .nav a.active { box-shadow: inset 3px 0 0 var(--brand); }
 }
@@ -773,7 +773,7 @@ a { color: var(--primary); }
 .nav a:hover, .nav-logout:hover { color: var(--text); background: var(--surface-2); }
 .nav a.active { color: var(--heading); background: var(--surface-2); box-shadow: none; font-weight: 600; }
 .theme-btn { border-radius: 999px; }
-@media (max-width: 720px) { .nav a.active { box-shadow: inset 3px 0 0 var(--brand); border-radius: 8px; } }
+@media (max-width: 1180px) { .nav a.active { box-shadow: inset 3px 0 0 var(--brand); border-radius: 8px; } }
 
 /* Кнопки-«таблетки» */
 .btn { border-radius: 999px; text-transform: none; letter-spacing: 0; font: 500 1rem var(--font-body); min-height: 50px; padding: 0 26px; }
@@ -875,3 +875,22 @@ a { color: var(--primary); }
 .top-list--compact .top-place { width: 26px; font-size: 1rem; }
 .top-list--compact .top-points b { font-size: 1rem; }
 @media (max-width: 520px) { .top-list li { padding: 10px 12px; gap: 10px; } }
+
+/* Учебные материалы */
+.mat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin: 8px 0 48px; }
+.mat-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.mat-cover { position: relative; display: flex; align-items: flex-end; aspect-ratio: 16 / 7; padding: 16px 18px; text-decoration: none;
+  background: linear-gradient(135deg, #17324d 0%, #23506f 60%, #3fa36b 140%); color: #fff; }
+.mat-cover__type { position: absolute; top: 14px; right: 14px; font: 700 .72rem var(--font-head); letter-spacing: .08em; padding: 4px 8px; border-radius: 6px; background: rgba(255,255,255,.16); }
+.mat-cover__brand { font: 700 1.3rem/1.2 var(--font-head); overflow-wrap: anywhere; }
+.mat-body { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px 18px; flex: 1; }
+.mat-body h3 { margin: 0; font-size: 1.08rem; line-height: 1.35; }
+.mat-body p { margin: 0; }
+.mat-body .meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; color: var(--muted); font-size: .85rem; }
+.mat-body .btn-row { margin-top: auto; padding-top: 6px; }
+.mat-admin { display: flex; gap: 16px; font-size: .88rem; }
+@media (max-width: 520px) { .mat-grid { grid-template-columns: 1fr; } }
+
+/* Шапка: пункты меню в одну строку; на узких экранах — меню-гамбургер (до 1180px) */
+.nav a, .nav-logout { white-space: nowrap; }
+@media (min-width: 1181px) { .nav a, .nav-logout { padding: 8px 12px; } }

@@ -118,11 +118,24 @@ function schema(): array
             PRIMARY KEY (user_id, test),
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )$tail",
+        // Учебные материалы (презентации PDF), загруженные администратором
+        "CREATE TABLE IF NOT EXISTS materials (
+            id $id,
+            title VARCHAR(200) NOT NULL,
+            brand VARCHAR(120) NOT NULL DEFAULT '',
+            category VARCHAR(40) NOT NULL DEFAULT '',
+            description TEXT NULL,
+            course_id VARCHAR(40) NOT NULL DEFAULT '',
+            file VARCHAR(80) NOT NULL,
+            original_name VARCHAR(200) NOT NULL DEFAULT '',
+            size INT NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL
+        )$tail",
     ];
 }
 
 // Новые таблицы для уже установленной платформы: создаются один раз при первом запросе
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '3';
 function migrate(): void
 {
     try {
@@ -389,5 +402,32 @@ function rating(): array
     }
     unset($r);
     return $rows;
+}
+
+/* ── Учебные материалы ── */
+
+// Папка с файлами вне git и вне выкладки (data/ не перезаписывается при обновлении сайта).
+// Имена файлов случайные, прямой доступ закрыт .htaccess — файлы отдаёт только API вошедшим.
+function materials_dir(): string
+{
+    $dir = config()['materials_dir'] ?? (__DIR__ . '/../data/materials');
+    if ((!is_dir($dir) && !@mkdir($dir, 0750, true) && !is_dir($dir)) || !is_writable($dir)) {
+        fail(500, 'storage', 'Сервер не может сохранить файл: нужна папка data/materials с правом записи для PHP. '
+            . 'Попросите системного администратора создать её (см. docs/DEPLOY.md, раздел «Учебные материалы»).');
+    }
+    if (!is_file($dir . '/.htaccess')) {
+        file_put_contents($dir . '/.htaccess', "Require all denied\nOptions -Indexes\n");
+        file_put_contents($dir . '/index.html', '');
+    }
+    return $dir;
+}
+
+function material_row(array $r): array
+{
+    return [
+        'id' => (int)$r['id'], 'title' => $r['title'], 'brand' => $r['brand'], 'category' => $r['category'],
+        'description' => (string)$r['description'], 'course' => $r['course_id'], 'size' => (int)$r['size'],
+        'added' => strtotime($r['created_at'] . ' UTC') * 1000,
+    ];
 }
 
