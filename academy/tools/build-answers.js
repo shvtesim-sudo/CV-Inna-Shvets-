@@ -7,11 +7,12 @@ const vm = require('vm');
 const root = path.join(__dirname, '..');
 const sandbox = { window: {} };
 vm.runInNewContext(fs.readFileSync(path.join(root, 'js/data.js'), 'utf8'), sandbox);
+vm.runInNewContext(fs.readFileSync(path.join(root, 'js/data-viva.js'), 'utf8'), sandbox);
 
 const lines = sandbox.window.COURSES.map((c) => {
   const keys = c.quiz.map((q) => q.correct).join(', ');
   const title = c.title.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  return `  '${c.id}' => ['title' => '${title}', 'lessons' => ${c.lessons.length}, 'answers' => [${keys}]],`;
+  return `  '${c.id}' => ['title' => '${title}', 'lessons' => ${c.lessons.length}, 'answers' => [${keys}]${c.legacy ? `, 'legacy' => '${c.legacy.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'` : ''}],`;
 });
 
 const php = `<?php
