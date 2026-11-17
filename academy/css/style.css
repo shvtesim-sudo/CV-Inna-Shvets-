@@ -1112,3 +1112,20 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
   .lesson table.stack td:not(:first-child)::before { content: attr(data-label); display: block; font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 2px; }
   .lesson .table-scroll { overflow: visible; margin: 0; }
 }
+
+/* Справочник по МНН */
+.drug-sec { margin: 24px 0; }
+.drug-sec h2 { font-size: 1.15rem; margin-bottom: 10px; }
+.drug-sec h2 .muted { font-weight: 500; font-size: .95rem; }
+.drug-src { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+.drug-src .btn { flex-direction: column; align-items: flex-start; line-height: 1.2; padding: 10px 16px; height: auto; }
+.drug-src .btn small { font-weight: 400; font-size: .75rem; opacity: .8; }
+.drug-hits, .drug-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.drug-hits li { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; }
+.drug-hits a { text-decoration: none; color: var(--heading); }
+.drug-hits small { display: block; color: var(--muted); }
+.drug-hits p { margin: 6px 0 0; font-size: .9rem; color: var(--text); }
+.drug-hits mark, .drug-items mark { background: color-mix(in srgb, var(--brand) 22%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
+.drug-items li { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.drug-items a { color: var(--text); }
+.drug-items small { display: block; color: var(--muted); font-size: .82rem; }
