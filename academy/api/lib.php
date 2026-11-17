@@ -139,11 +139,41 @@ function schema(): array
             created_at DATETIME NOT NULL,
             PRIMARY KEY (upload, idx)
         )$tail",
+        // Привязка Telegram: код для ссылки t.me/<бот>?start=<код> и чат сотрудника
+        "CREATE TABLE IF NOT EXISTS tg_links (
+            user_id $ref NOT NULL PRIMARY KEY,
+            chat_id VARCHAR(40) NULL,
+            code VARCHAR(32) NULL,
+            linked_at DATETIME NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )$tail",
+        // Афиша: мероприятия и записи на них
+        "CREATE TABLE IF NOT EXISTS events (
+            id $id,
+            title VARCHAR(200) NOT NULL,
+            speaker VARCHAR(200) NOT NULL DEFAULT '',
+            description TEXT NULL,
+            place VARCHAR(200) NOT NULL DEFAULT '',
+            link VARCHAR(300) NOT NULL DEFAULT '',
+            starts_at DATETIME NOT NULL,
+            duration INT NOT NULL DEFAULT 60,
+            capacity INT NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL
+        )$tail",
+        "CREATE TABLE IF NOT EXISTS event_regs (
+            event_id $ref NOT NULL,
+            user_id $ref NOT NULL,
+            created_at DATETIME NOT NULL,
+            reminded INT NOT NULL DEFAULT 0,
+            PRIMARY KEY (event_id, user_id),
+            FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )$tail",
     ];
 }
 
 // Новые таблицы для уже установленной платформы: создаются один раз при первом запросе
-const SCHEMA_VERSION = '4';
+const SCHEMA_VERSION = '5';
 function migrate(): void
 {
     try {
@@ -157,6 +187,7 @@ function migrate(): void
         foreach (schema() as $sql) {
             db()->exec($sql);
         }
+        seed();
         set_setting('schema_version', SCHEMA_VERSION);
     } catch (Throwable $e) {
         // Сайт продолжает работать; без новой таблицы недоступен только импорт старых результатов
@@ -170,6 +201,20 @@ function external_passed_total(): int
         return (int)q('SELECT COUNT(*) FROM external_results WHERE passed = 1')->fetchColumn();
     } catch (Throwable $e) {
         return 0;
+    }
+}
+
+// Первые данные, которые должны появиться на сайте вместе с обновлением (добавляются один раз)
+function seed(): void
+{
+    if (setting('seed_event_nebulizer') === '') {
+        // 20 ноября 2026, 14:30 по Тирасполю (UTC+2) = 12:30 UTC
+        q('INSERT INTO events (title, speaker, description, place, link, starts_at, duration, capacity, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+            'Небулайзер при лечении кашля и ОРВИ', 'Врач Рябчук Анна Сергеевна',
+            'Когда небулайзер действительно помогает при кашле и ОРВИ, какие растворы можно использовать и как объяснить покупателю правила ингаляций.',
+            '', '', '2026-11-20 12:30:00', 60, 0, now(),
+        ]);
+        set_setting('seed_event_nebulizer', '1');
     }
 }
 

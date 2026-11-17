@@ -308,11 +308,13 @@
           <div class="stat"><b>${Object.keys(CATEGORIES).length}</b><span>направлений</span></div>`}
         </div>
         <div class="quick-links">
+          ${mode === 'server' ? '<a class="quick-link" href="#/events"><span aria-hidden="true">📅</span><b>Афиша</b><small>Лекции и вебинары — запись и напоминания</small></a>' : ''}
           ${mode === 'server' ? '<a class="quick-link" href="#/materials"><span aria-hidden="true">📚</span><b>Учебные материалы</b><small>Презентации брендов и тренингов</small></a>' : ''}
           <a class="quick-link" href="#/law"><span aria-hidden="true">⚖️</span><b>Нормативная база</b><small>Законы и приказы ПМР для аптеки и бухгалтерии</small></a>
           ${teamReady() ? '<a class="quick-link" href="#/team"><span aria-hidden="true">👥</span><b>К кому обращаться</b><small>Кто в Вивафарм отвечает за ваш вопрос</small></a>' : ''}
           <a class="quick-link" href="#/profile"><span aria-hidden="true">🎓</span><b>Мои сертификаты</b><small>Прогресс и документы в личном кабинете</small></a>
         </div>
+        ${mode === 'server' && user ? '<section class="section" id="home-event" hidden></section>' : ''}
         ${mode === 'server' && user ? '<section class="section" id="top10" aria-live="polite"></section>' : ''}
         <section class="section">
           <div class="section__head">
@@ -541,6 +543,165 @@
 
   let filter = { cat: 'all', q: '' };
 
+  /* ───────────── Афиша мероприятий ───────────── */
+  let evs = { data: null };
+  const TZ = 'Europe/Chisinau';
+  const evDay = (ts) => new Date(ts).toLocaleDateString('ru-RU', { day: 'numeric', timeZone: TZ });
+  const evMonth = (ts) => new Date(ts).toLocaleDateString('ru-RU', { month: 'short', timeZone: TZ }).replace('.', '');
+  const evTime = (ts) => new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+  const evWeekday = (ts) => new Date(ts).toLocaleDateString('ru-RU', { weekday: 'long', timeZone: TZ });
+  const evFull = (ts) => new Date(ts).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: TZ }) + ', ' + evTime(ts);
+
+  function viewEvents() {
+    return `
+      <div class="wrap">
+        <div class="crumbs"><a href="#/">Главная</a> / Афиша</div>
+        <div class="section__head"><div><h1 style="margin:0">Афиша</h1>
+          <p>Лекции, вебинары и встречи для сотрудников Вивафарм. Записывайтесь — бот напомнит в Telegram накануне и за час до начала.</p></div>
+          ${isAdmin() ? '<button class="btn btn--primary btn--sm" data-ev-new>+ Мероприятие</button>' : ''}</div>
+        <div id="ev-body"><p class="muted">Загружаем афишу…</p></div>
+      </div>`;
+  }
+
+  async function loadEvents() {
+    try {
+      evs.data = await call('events');
+    } catch (e) {
+      const b = document.getElementById('ev-body');
+      if (b) b.innerHTML = formError(e.message);
+      return;
+    }
+    renderEvents();
+  }
+
+  // Ближайшее мероприятие на главной
+  async function loadHomeEvent() {
+    const box = document.getElementById('home-event');
+    if (!box) return;
+    try {
+      evs.data = await call('events');
+    } catch (e) { return; }
+    const next = evs.data.upcoming.filter((e) => e.startsAt > Date.now())[0];
+    if (!next || !document.getElementById('home-event')) return;
+    box.hidden = false;
+    box.innerHTML = `<div class="section__head"><div><h2>Ближайшее мероприятие</h2></div><a href="#/events">Вся афиша →</a></div>
+      ${eventCard(next, false)}${tgBanner(evs.data.telegram, 'home')}`;
+  }
+
+  function tgBanner(tg, where) {
+    if (!tg || !tg.bot || tg.linked) return '';
+    return `<div class="tg-banner"><span aria-hidden="true">✈️</span><div class="grow"><b>Получайте напоминания в Telegram</b>
+      <small>${where === 'events' ? 'Подключите бота — он напомнит о мероприятиях, на которые вы записались, и сообщит о новых тестах.' : 'Бот сообщит о новых тестах и мероприятиях и напомнит о записи.'}</small></div>
+      <button class="btn btn--primary btn--sm" data-tg-link>Подключить</button></div>`;
+  }
+
+  function eventCard(e, past) {
+    const full = e.capacity > 0 && e.registered >= e.capacity && !e.mine;
+    const started = e.startsAt <= Date.now();
+    let action = '';
+    if (!past && !started) {
+      action = e.mine
+        ? `<span class="badge badge--done">Вы записаны ✓</span><button class="link-btn" data-ev-reg="${e.id}" data-on="0">Отменить запись</button>`
+        : full ? '<span class="badge badge--warn">Мест нет</span>'
+        : `<button class="btn btn--primary btn--sm" data-ev-reg="${e.id}" data-on="1">Записаться</button>`;
+    }
+    return `
+      <article class="ev-card${past ? ' ev-card--past' : ''}">
+        <div class="ev-date" aria-hidden="true"><b>${evDay(e.startsAt)}</b><span>${evMonth(e.startsAt)}</span><small>${evTime(e.startsAt)}</small></div>
+        <div class="ev-body">
+          <div class="meta"><span>${esc(evWeekday(e.startsAt))}, ${evFull(e.startsAt)}</span>${e.duration ? `<span>${e.duration} мин</span>` : ''}${e.place ? `<span>📍 ${esc(e.place)}</span>` : ''}</div>
+          <h3>${esc(e.title)}</h3>
+          ${e.speaker ? `<p class="ev-speaker">${esc(e.speaker)}</p>` : ''}
+          ${e.description ? `<p class="muted small">${esc(e.description)}</p>` : ''}
+          ${e.mine && e.link && e.link !== 'after' ? `<p class="small">🔗 Ссылка для подключения: <a href="${esc(e.link)}" target="_blank" rel="noopener">${esc(e.link)}</a></p>`
+            : e.link === 'after' && !past ? '<p class="muted small">🔗 Ссылка для подключения появится после записи.</p>' : ''}
+          <div class="ev-actions">
+            ${action}
+            <span class="muted small">Записались: ${e.registered}${e.capacity ? ` из ${e.capacity}` : ''}</span>
+            ${canViewAdmin() ? `<button class="link-btn" data-ev-list="${e.id}">Список</button>` : ''}
+            ${isAdmin() ? `<button class="link-btn" data-ev-edit="${e.id}">Изменить</button><button class="link-btn" data-ev-delete="${e.id}">Удалить</button>` : ''}
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function renderEvents() {
+    const box = document.getElementById('ev-body');
+    if (!box || !evs.data) return;
+    const d = evs.data;
+    box.innerHTML = `
+      ${tgBanner(d.telegram, 'events')}
+      ${d.upcoming.length ? `<div class="ev-list">${d.upcoming.map((e) => eventCard(e, false)).join('')}</div>`
+        : `<div class="empty">Ближайших мероприятий пока нет.${isAdmin() ? ' Нажмите «+ Мероприятие».' : ' Мы сообщим, когда появятся новые.'}</div>`}
+      ${d.past.length ? `<details class="ev-past"><summary>Прошедшие мероприятия (${d.past.length})</summary><div class="ev-list">${d.past.map((e) => eventCard(e, true)).join('')}</div></details>` : ''}`;
+  }
+
+  function openEventForm(e) {
+    const isNew = !e;
+    e = e || { id: 0, title: '', speaker: '', description: '', place: '', link: '', local: '', duration: 60, capacity: 0 };
+    modal.innerHTML = `
+      <form id="event-form" class="modal__body">
+        <h2>${isNew ? 'Новое мероприятие' : 'Мероприятие'}</h2>
+        <input type="hidden" name="id" value="${e.id}">
+        <div class="field"><label for="ev-title">Тема</label><input id="ev-title" name="title" required maxlength="200" value="${esc(e.title)}"></div>
+        <div class="field"><label for="ev-speaker">Спикер</label><input id="ev-speaker" name="speaker" maxlength="200" value="${esc(e.speaker)}" placeholder="например, врач Иванова Анна Сергеевна"></div>
+        <div class="field-row">
+          <div class="field"><label for="ev-local">Дата и время (Тирасполь)</label><input id="ev-local" name="local" type="datetime-local" required value="${esc(e.local)}"></div>
+          <div class="field"><label for="ev-duration">Длительность, мин</label><input id="ev-duration" name="duration" type="number" min="0" max="600" value="${e.duration}"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="ev-place">Место</label><input id="ev-place" name="place" maxlength="200" value="${esc(e.place)}" placeholder="адрес или «Онлайн, Zoom»"></div>
+          <div class="field"><label for="ev-capacity">Мест (0 — без ограничений)</label><input id="ev-capacity" name="capacity" type="number" min="0" value="${e.capacity}"></div>
+        </div>
+        <div class="field"><label for="ev-link">Ссылка для подключения (видна только записавшимся)</label><input id="ev-link" name="link" maxlength="300" value="${esc(e.link === 'after' ? '' : e.link)}" placeholder="https://…"></div>
+        <div class="field"><label for="ev-desc">Описание</label><textarea id="ev-desc" name="description" rows="3" maxlength="3000">${esc(e.description)}</textarea></div>
+        <label class="check"><input type="checkbox" name="announce" ${isNew ? 'checked' : ''}> ${isNew ? 'Сообщить всем в Telegram' : 'Разослать всем в Telegram ещё раз (например, о переносе)'}</label>
+        <div class="form-msg"></div>
+        <div class="btn-row"><button class="btn btn--primary">Сохранить</button><button type="button" class="btn btn--ghost" data-close>Отмена</button></div>
+      </form>`;
+    modal.showModal();
+  }
+
+  async function openEventList(id) {
+    const e = evs.data.upcoming.concat(evs.data.past).find((x) => x.id === id);
+    modal.innerHTML = `<div class="modal__body"><h2>Записались</h2><p class="muted">${esc(e.title)} · ${evFull(e.startsAt)}</p><div id="ev-people"><p class="muted">Загружаем…</p></div>
+      <div class="btn-row"><button type="button" class="btn btn--ghost" data-ev-csv="${id}" hidden>Скачать список</button><button type="button" class="btn btn--ghost" data-close>Закрыть</button></div></div>`;
+    modal.showModal();
+    try {
+      const r = await call('event_regs&id=' + id);
+      modal.peopleList = r.people;
+      document.getElementById('ev-people').innerHTML = r.people.length
+        ? `<ol class="ev-people">${r.people.map((p) => `<li><b>${esc(p.name)}</b> <small class="muted">${esc(p.branch || '')}${p.tg ? ' · Telegram ✓' : ''}</small></li>`).join('')}</ol>`
+        : '<p class="muted">Пока никто не записался.</p>';
+      if (r.people.length) modal.querySelector('[data-ev-csv]').hidden = false;
+    } catch (err) { document.getElementById('ev-people').innerHTML = formError(err.message); }
+  }
+
+  async function connectTelegram() {
+    try {
+      const r = await call('tg_status');
+      if (r.linked) { toast('Telegram уже подключён'); return; }
+      if (!r.link) { toast('Бот пока не настроен администратором'); return; }
+      window.open(r.link, '_blank', 'noopener');
+      toast('Нажмите «Старт» в Telegram — и уведомления подключатся');
+    } catch (e) { toast(e.message); }
+  }
+
+  async function renderTgPanel() {
+    const box = document.getElementById('tg-panel');
+    if (!box) return;
+    try {
+      const r = await call('tg_status');
+      if (!r.bot) { box.remove(); return; }
+      box.innerHTML = r.linked
+        ? `<p class="small"><b>Telegram подключён ✓</b><br><span class="muted">Сюда приходят новые тесты, анонсы и напоминания о мероприятиях.</span></p>
+           <button class="btn btn--ghost btn--sm btn--block" data-tg-unlink>Отключить</button>`
+        : `<p class="small"><b>Уведомления в Telegram</b><br><span class="muted">Новые тесты, анонсы мероприятий и напоминания о записи.</span></p>
+           <a class="btn btn--primary btn--sm btn--block" href="${esc(r.link)}" target="_blank" rel="noopener">Подключить Telegram</a>
+           <p class="muted small">Откроется бот @${esc(r.bot)} — нажмите «Старт». Затем обновите эту страницу.</p>`;
+    } catch (e) { box.remove(); }
+  }
+
   /* ───────────── Учебные материалы (презентации PDF) ───────────── */
   let mats = { list: null, cat: 'all', q: '' };
   const matUrl = (m, dl) => `${API}?action=material_file&id=${m.id}${dl ? '&dl=1' : ''}`;
@@ -632,6 +793,7 @@
         <div class="field"><label for="mat-course">Курс с тестом по этой теме (необязательно)</label><select id="mat-course" name="course">
           <option value="">—</option>${COURSES.map((c) => `<option value="${c.id}" ${m.course === c.id ? 'selected' : ''}>${esc(c.title)}</option>`).join('')}
         </select></div>
+        ${isNew ? '<label class="check"><input type="checkbox" name="announce" checked> Сообщить всем в Telegram</label>' : ''}
         <div class="form-msg"></div>
         <p class="muted small" id="mat-progress" aria-live="polite"></p>
         <div class="btn-row"><button class="btn btn--primary">${isNew ? 'Загрузить' : 'Сохранить'}</button><button type="button" class="btn btn--ghost" data-close>Отмена</button></div>
@@ -869,7 +1031,8 @@
                 <button class="btn btn--ghost btn--block">Сменить пароль</button>
               </form>
             </details>
-            <p class="muted small">Логин: <b>${esc(user.login)}</b></p>`
+            <p class="muted small">Логин: <b>${esc(user.login)}</b></p>
+            <div class="tg-panel" id="tg-panel"></div>`
       : '<button class="btn btn--ghost btn--sm btn--block" id="reset" style="margin-top:12px">Сбросить прогресс</button>';
     return `
       ${demoBanner()}
@@ -1069,6 +1232,7 @@
       const r = await call('admin_users');
       admin.users = r.users;
       admin.inviteCode = r.inviteCode;
+      admin.telegram = r.telegram;
       admin.top = null;
       renderAdmin();
       call('top').then((t) => {
@@ -1156,6 +1320,17 @@
               <li><button class="link-btn" data-branch="${esc(x.b)}">${esc(x.b)}</button><small>${x.n} ${plural(x.n, 'сотрудник', 'сотрудника', 'сотрудников')} · ${x.avg}%</small>${progressBar(x.avg)}</li>`).join('')}</ul>`
               : '<p class="muted small">Укажите сотрудникам аптеку — здесь появится сводка.</p>'}
           </div>
+          ${isAdmin() ? `<div class="panel">
+            <h3>Telegram-бот</h3>
+            ${admin.telegram && admin.telegram.bot
+              ? `<p class="small">Подключён: <b>@${esc(admin.telegram.bot)}</b><br><span class="muted">Сотрудников с уведомлениями: ${admin.telegram.linked} из ${staff.length}</span></p>`
+              : '<p class="muted small">Создайте бота в @BotFather (команда /newbot), скопируйте токен и вставьте сюда.</p>'}
+            <form id="tg-form">
+              <div class="field"><label for="tg-token">${admin.telegram && admin.telegram.bot ? 'Новый токен (если меняете бота)' : 'Токен бота'}</label><input id="tg-token" name="token" autocomplete="off" placeholder="123456789:AA…"></div>
+              <div class="form-msg"></div>
+              <button class="btn btn--ghost btn--sm btn--block">${admin.telegram && admin.telegram.bot ? 'Заменить бота' : 'Подключить бота'}</button>
+            </form>
+          </div>` : ''}
           ${isAdmin() ? `<div class="panel">
             <h3>Самостоятельная регистрация</h3>
             <form id="invite-form">
@@ -1457,6 +1632,7 @@
     else if (page === 'team' && teamReady()) html = viewTeam();
     else if (page === 'profile') html = viewProfile();
     else if (page === 'materials' && mode === 'server') html = viewMaterials();
+    else if (page === 'events' && mode === 'server') html = viewEvents();
     else if (page === 'admin' && canViewAdmin()) html = viewAdmin();
     else if (page === 'verify' && id) html = viewVerify(decodeURIComponent(id));
     else if (page === 'xcert' && id) { html = viewExtCertificate(decodeURIComponent(id)); nav = 'profile'; }
@@ -1469,10 +1645,12 @@
     if (page !== 'quiz') quiz = null;
     stopPillars();
     app.innerHTML = html;
-    if (!page) { startPillars(); loadTop('top10', false); }
+    if (!page) { startPillars(); loadTop('top10', false); if (mode === 'server' && user) loadHomeEvent(); }
     if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
     if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
+    if (page === 'events' && mode === 'server') { if (evs.data) renderEvents(); loadEvents(); }
+    if (page === 'profile' && mode === 'server') renderTgPanel();
     if (page === 'admin' && canViewAdmin()) loadAdmin();
     if (page === 'verify' && id) loadVerify(decodeURIComponent(id));
 
@@ -1487,7 +1665,7 @@
     const loggedOut = mode === 'server' && !user;
     document.querySelectorAll('[data-nav]').forEach((a) => {
       a.classList.toggle('active', a.dataset.nav === active);
-      a.hidden = loggedOut || (a.dataset.nav === 'admin' && !canViewAdmin()) || (a.dataset.nav === 'materials' && mode !== 'server');
+      a.hidden = loggedOut || (a.dataset.nav === 'admin' && !canViewAdmin()) || ((a.dataset.nav === 'materials' || a.dataset.nav === 'events') && mode !== 'server');
     });
     document.querySelector('.nav-logout').hidden = !(mode === 'server' && user);
     document.getElementById('nav').classList.remove('open');
@@ -1527,6 +1705,30 @@
     if (t.dataset.teamTopic) {
       teamTopic = teamTopic === t.dataset.teamTopic ? null : t.dataset.teamTopic;
       app.innerHTML = viewTeam();
+      return;
+    }
+    if (t.hasAttribute('data-ev-new')) { openEventForm(null); return; }
+    if (t.dataset.evEdit) { openEventForm(evs.data.upcoming.concat(evs.data.past).find((x) => x.id === Number(t.dataset.evEdit))); return; }
+    if (t.dataset.evList) { openEventList(Number(t.dataset.evList)); return; }
+    if (t.dataset.evDelete) {
+      const e = evs.data.upcoming.concat(evs.data.past).find((x) => x.id === Number(t.dataset.evDelete));
+      if (!e || !confirm(`Удалить «${e.title}» вместе со списком записавшихся?`)) return;
+      try { await call('admin_event_delete', { id: e.id }); toast('Мероприятие удалено'); await loadEvents(); } catch (err) { toast(err.message); }
+      return;
+    }
+    if (t.dataset.evReg) {
+      t.disabled = true;
+      try {
+        const on = t.dataset.on === '1';
+        const r = await call('event_register', { id: Number(t.dataset.evReg), on });
+        toast(on ? (r.telegram ? 'Вы записаны. Подтверждение пришло в Telegram' : 'Вы записаны') : 'Запись отменена');
+        if (document.getElementById('home-event')) await loadHomeEvent(); else await loadEvents();
+      } catch (err) { toast(err.message); t.disabled = false; }
+      return;
+    }
+    if (t.hasAttribute('data-tg-link')) { connectTelegram(); return; }
+    if (t.hasAttribute('data-tg-unlink')) {
+      try { await call('tg_unlink', {}); toast('Уведомления отключены'); renderTgPanel(); } catch (err) { toast(err.message); }
       return;
     }
     if (t.dataset.matCat) {
@@ -1713,10 +1915,30 @@
         await loadAdmin();
         return;
       }
+      if (formId === 'event-form') {
+        const r = await call('admin_event_save', {
+          id: Number(f.id.value) || 0, title: f.title.value, speaker: f.speaker.value, local: f.local.value,
+          duration: Number(f.duration.value) || 0, place: f.place.value, capacity: Number(f.capacity.value) || 0,
+          link: f.link.value.trim(), description: f.description.value, announce: f.announce.checked
+        });
+        modal.close();
+        toast(r.sent ? `Сохранено. Сообщение отправлено: ${r.sent}` : 'Сохранено');
+        await loadEvents();
+        return;
+      }
+      if (formId === 'tg-form') {
+        const token = f.token.value.trim();
+        if (!token) throw new Error('Вставьте токен от @BotFather.');
+        const r = await call('admin_tg_setup', { token });
+        toast(`Бот @${r.bot} подключён`);
+        await loadAdmin();
+        return;
+      }
       if (formId === 'material-form') {
         const data = {
           id: Number(f.id.value) || 0, title: f.title.value, brand: f.brand.value,
-          category: f.category.value, description: f.description.value, course: f.course.value
+          category: f.category.value, description: f.description.value, course: f.course.value,
+          announce: !!(f.announce && f.announce.checked)
         };
         if (!data.id) {
           const file = f.file.files[0];
@@ -1768,6 +1990,8 @@
     } else if (t.dataset.sheetCsv) {
       const [b, list] = Array.from(sheets.entries())[Number(t.dataset.sheetCsv) - 1];
       downloadCsv(`viva-academy-${translit(b)}.csv`, [['ФИО', 'Логин', 'Пароль']].concat(list.map((u) => [u.name, u.login, u.password])));
+    } else if (t.dataset.evCsv) {
+      downloadCsv('viva-academy-zapis.csv', [['ФИО', 'Логин', 'Аптека', 'Telegram', 'Записался']].concat(modal.peopleList.map((p) => [p.name, p.login, p.branch || '', p.tg ? 'да' : 'нет', p.at])));
     } else if (t.hasAttribute('data-genpass')) {
       modal.querySelector('#u-password').value = genPassword();
     } else if (t.hasAttribute('data-cred-download')) {

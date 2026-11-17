@@ -1,0 +1,19 @@
+# Каждые 15 минут будит сайт: он рассылает напоминания о мероприятиях
+# и объявления о новых курсах в Telegram. Сайт сам решает, что пора отправить,
+# повторный вызов ничего не дублирует.
+name: Academy reminders
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Run reminders
+        run: curl -fsS --max-time 120 "https://vivaacademy.md/api/index.php?action=cron"
