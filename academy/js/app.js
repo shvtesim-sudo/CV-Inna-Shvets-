@@ -1248,6 +1248,11 @@
       admin.telegram = r.telegram;
       admin.top = null;
       renderAdmin();
+      call('events').then((d) => {
+        evs.data = d;
+        const box = document.getElementById('admin-events');
+        if (box) { box.innerHTML = adminEventsHtml(); box.hidden = false; }
+      }).catch(() => {});
       call('top').then((t) => {
         admin.top = t;
         const box = document.getElementById('admin-top');
@@ -1299,6 +1304,7 @@
 
     body.innerHTML = `
       ${isAdmin() && !(admin.telegram && admin.telegram.bot) ? tgAdminPanel(staff, true) : ''}
+      <div class="panel admin-events" id="admin-events"${evs.data ? '' : ' hidden'}>${evs.data ? adminEventsHtml() : ''}</div>
       <div class="stats">
         <div class="stat"><b>${staff.length}</b><span>сотрудников</span></div>
         <div class="stat"><b>${activeWeek}</b><span>заходили за 7 дней</span></div>
@@ -1346,6 +1352,18 @@
           </div>` : ''}
         </div>
       </div>`;
+  }
+
+  // Сводка записей на ближайшие мероприятия
+  function adminEventsHtml() {
+    const list = evs.data.upcoming.filter((e) => e.startsAt > Date.now() - 3 * 3600e3);
+    return `<h3>Записи на мероприятия</h3>
+      ${list.length ? `<ul class="admin-ev-list">${list.map((e) => `
+        <li><div class="grow"><b>${esc(e.title)}</b><small>${evFull(e.startsAt)}</small></div>
+          <span class="admin-ev-count"><b>${e.registered}</b>${e.capacity ? ` из ${e.capacity}` : ''} <small>${plural(e.registered, 'записался', 'записались', 'записались')}</small></span>
+          <button class="btn btn--ghost btn--sm" data-ev-list="${e.id}">Список</button></li>`).join('')}</ul>`
+        : '<p class="muted small">Ближайших мероприятий нет.</p>'}
+      <p class="small" style="margin:12px 0 0"><a href="#/events">Вся афиша →</a></p>`;
   }
 
   // Настройка Telegram-бота. Пока бот не подключён — заметный блок над сводкой, потом — компактная панель сбоку.
