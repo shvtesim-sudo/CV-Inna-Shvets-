@@ -70,6 +70,29 @@ if ($action === 'me') {
     ]);
 }
 
+// Топ-10 по результатам тестов — для всех вошедших сотрудников
+if ($action === 'top') {
+    $u = require_user();
+    $all = rating();
+    $mine = null;
+    foreach ($all as $i => $r) {
+        if ($r['id'] === (int)$u['id']) {
+            $mine = $r;
+            break;
+        }
+    }
+    $strip = function ($r) use ($u) {
+        $r['isMe'] = $r['id'] === (int)$u['id'];
+        unset($r['id']);
+        return $r;
+    };
+    json_out([
+        'top' => array_map($strip, array_slice($all, 0, 10)),
+        'me' => $mine ? $strip($mine) : null,
+        'total' => count($all),
+    ]);
+}
+
 // Только чтение — GET, всё остальное — POST с CSRF-токеном
 $readOnly = in_array($action, ['admin_users', 'admin_export'], true);
 if ($method !== 'POST' && !$readOnly) {

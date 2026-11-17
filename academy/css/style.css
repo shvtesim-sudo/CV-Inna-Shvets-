@@ -858,3 +858,20 @@ a { color: var(--primary); }
 .ext-list small { display: block; margin-top: 2px; }
 .ext-admin-title { margin: 14px 0 6px; font-weight: 600; }
 .table td.t-num small { display: block; }
+
+/* Топ-10 по результатам тестов */
+.top-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.top-list li { display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; }
+.top-list li.is-me { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.top-list .grow { flex: 1; min-width: 0; }
+.top-list .grow small { display: block; color: var(--muted); font-size: .86rem; margin-top: 2px; }
+.top-place { flex: none; width: 34px; text-align: center; font: 700 1.15rem var(--font-head); color: var(--heading); }
+.top-points { flex: none; text-align: right; line-height: 1.1; }
+.top-points b { display: block; font: 700 1.25rem var(--font-head); color: var(--heading); }
+.top-points small { color: var(--muted); font-size: .78rem; }
+.top-me { margin: 12px 0 0; color: var(--muted); }
+.top-list--compact li { padding: 8px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none; gap: 10px; }
+.top-list--compact li.is-me { box-shadow: none; }
+.top-list--compact .top-place { width: 26px; font-size: 1rem; }
+.top-list--compact .top-points b { font-size: 1rem; }
+@media (max-width: 520px) { .top-list li { padding: 10px 12px; gap: 10px; } }

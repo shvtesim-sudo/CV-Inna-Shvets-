@@ -332,3 +332,62 @@ function user_progress(int $uid): array
     }
     return ['lessons' => (object)$lessons, 'quiz' => (object)$quiz, 'external' => external_results($uid)];
 }
+
+/* ── Рейтинг ── */
+
+// Рейтинг сотрудников по тестам: за каждый сданный курс — его лучший результат в процентах.
+// Тест, сданный до запуска Академии, засчитывается за свой курс (по названию из импорта).
+function rating(): array
+{
+    $best = []; // user_id → course_id → доля 0..1
+    $tries = []; // user_id → course_id → попыток (при равных баллах выше тот, кто сдал с меньшего числа попыток)
+    foreach (q('SELECT user_id, course_id, best, attempts FROM quiz_results WHERE passed_at IS NOT NULL') as $r) {
+        $best[$r['user_id']][$r['course_id']] = (float)$r['best'];
+        $tries[$r['user_id']][$r['course_id']] = max(1, (int)$r['attempts']);
+    }
+    $byLegacy = [];
+    foreach (courses() as $cid => $c) {
+        if (!empty($c['legacy'])) {
+            $byLegacy[$c['legacy']] = $cid;
+        }
+    }
+    try {
+        $ext = q('SELECT user_id, test, score, attempts FROM external_results WHERE passed = 1')->fetchAll();
+    } catch (Throwable $e) {
+        $ext = [];
+    }
+    foreach ($ext as $r) {
+        $cid = $byLegacy[$r['test']] ?? null;
+        if ($cid !== null) {
+            $v = min(1.0, (float)$r['score'] / 100);
+            if ($v > ($best[$r['user_id']][$cid] ?? 0)) {
+                $best[$r['user_id']][$cid] = $v;
+                $tries[$r['user_id']][$cid] = max(1, (int)$r['attempts']);
+            }
+        }
+    }
+    $rows = [];
+    foreach (q("SELECT id, name, branch FROM users WHERE role = 'user' AND active = 1") as $u) {
+        $list = $best[$u['id']] ?? [];
+        if (!$list) {
+            continue;
+        }
+        $sum = array_sum($list);
+        $rows[] = [
+            'id' => (int)$u['id'], 'name' => $u['name'], 'branch' => $u['branch'],
+            'passed' => count($list), 'avg' => (int)round($sum / count($list) * 100), 'points' => (int)round($sum * 100),
+            'attempts' => array_sum($tries[$u['id']] ?? []),
+        ];
+    }
+    usort($rows, function ($a, $b) {
+        return [$b['points'], $a['attempts'], $a['name']] <=> [$a['points'], $b['attempts'], $b['name']];
+    });
+    // Равные баллы и попытки — одно место на всех
+    foreach ($rows as $i => &$r) {
+        $prev = $rows[$i - 1] ?? null;
+        $r['place'] = $prev && $prev['points'] === $r['points'] && $prev['attempts'] === $r['attempts'] ? $prev['place'] : $i + 1;
+    }
+    unset($r);
+    return $rows;
+}
+
