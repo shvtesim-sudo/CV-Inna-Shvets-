@@ -31,7 +31,12 @@ if ($action === 'tg_webhook') {
 
 // Регулярные задачи (напоминания, объявления о новых курсах). Безопасно вызывать часто: работа идёт не чаще раза в минуту.
 if ($action === 'cron') {
-    json_out(['ok' => true] + notify_tick());
+    try {
+        json_out(['ok' => true] + notify_tick());
+    } catch (Throwable $e) {
+        error_log('[viva-academy] cron: ' . $e->getMessage());
+        json_out(['ok' => false, 'error' => mb_substr(get_class($e) . ': ' . $e->getMessage(), 0, 300)], 500);
+    }
 }
 
 // Публичная проверка сертификата
@@ -68,11 +73,16 @@ if ($action === 'cert') {
 
 if ($action === 'me') {
     // Попутно — напоминания и объявления (после ответа, если сервер это умеет)
+    // Ошибка здесь не должна портить ответ странице: ловим всё и только пишем в журнал.
     register_shutdown_function(function () {
         if (function_exists('fastcgi_finish_request')) {
             fastcgi_finish_request();
         }
-        notify_tick();
+        try {
+            notify_tick();
+        } catch (Throwable $e) {
+            error_log('[viva-academy] tick: ' . $e->getMessage());
+        }
     });
     try {
         $u = current_user();

@@ -208,12 +208,21 @@ function events_digest(): string
 function notify_tick(bool $force = false): array
 {
     $done = ['reminders' => 0, 'courses' => 0];
+    // «Захват» запуска одним запросом: при одновременных вызовах работу делает только тот, чей UPDATE сработал,
+    // иначе напоминания могли бы уйти дважды
     try {
-        $last = (int)setting('tick_at', '0');
-        if (!$force && time() - $last < 60) {
+        $last = setting('tick_at');
+        if ($last === '') {
+            set_setting('tick_at', '0');
+            $last = '0';
+        }
+        if (!$force && time() - (int)$last < 60) {
             return $done;
         }
-        set_setting('tick_at', (string)time());
+        $won = q('UPDATE settings SET value = ? WHERE name = ? AND value = ?', [(string)time(), 'tick_at', $last])->rowCount();
+        if ($won !== 1) {
+            return $done;
+        }
     } catch (Throwable $e) {
         return $done;
     }
