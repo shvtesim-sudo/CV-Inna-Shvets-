@@ -282,7 +282,107 @@
   }
 
   /* ───────────── Страницы обучения ───────────── */
+  function overallProgress() {
+    return Math.round(COURSES.reduce((s, c) => s + courseProgress(c), 0) / COURSES.length);
+  }
+
+  // Главная для вошедшего сотрудника: что сделать сегодня
+  function viewToday() {
+    const hour = Number(new Date().toLocaleString('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Europe/Chisinau' }));
+    const greet = hour < 5 ? 'Доброй ночи' : hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер';
+    // «Фамилия Имя Отчество» → Имя; два слова — неизвестен порядок, обращаемся полностью
+    const parts = (user.name || '').split(/\s+/).filter(Boolean);
+    const first = esc(parts.length === 3 ? parts[1] : parts.join(' '));
+    const date = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Chisinau' });
+    // Курс, который стоит продолжить: начатый с наибольшим прогрессом, иначе первый несданный
+    const started = COURSES.filter((c) => courseProgress(c) > 0 && !isPassed(c)).sort((a, b) => courseProgress(b) - courseProgress(a));
+    const next = started[0] || COURSES.find((c) => !isPassed(c));
+    const passed = COURSES.filter(isPassed).length;
+    const overall = overallProgress();
+    const law = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M6 20h12M5 7h14"/><path d="M5 7l-3 6a3 3 0 0 0 6 0zM19 7l-3 6a3 3 0 0 0 6 0z"/></svg>';
+    const cont = next ? `
+        <div class="today-card today-card--accent">
+          <h2>${started.length ? 'Продолжить обучение' : 'Следующий курс'}</h2>
+          <h3>${next.icon} ${esc(next.title)}</h3>
+          <p class="muted small" style="margin:0">${esc(CATEGORIES[next.category] || '')} · ≈ ${courseMinutes(next)} мин</p>
+          ${progressBar(courseProgress(next))}
+          <div class="btn-row"><a class="btn btn--primary" href="${nextStepFor(next).href}">${nextStepFor(next).label}</a><a class="btn btn--ghost btn--sm" style="color:#fff;border-color:rgba(255,255,255,.4)" href="#/courses">Все курсы</a></div>
+        </div>` : `
+        <div class="today-card today-card--accent"><h2>Обучение</h2><h3>🎉 Все курсы пройдены!</h3>
+          <p class="muted" style="margin:0">Новые курсы появятся здесь — бот сообщит о них в Telegram.</p></div>`;
+    return `
+      <div class="wrap today">
+        <h1 class="today__hello">${greet}${first ? ', ' + first : ''}!</h1>
+        <p class="today__date">${esc(date)}</p>
+        <div class="today-grid">
+          ${cont}
+          <div class="today-card">
+            <h2>Мой прогресс</h2>
+            <div class="me-stats">
+              <div><b>${overall}%</b><span>пройдено</span></div>
+              <div><b>${passed}</b><span>из ${COURSES.length} серт.</span></div>
+              <div><b id="me-place">—</b><span>место</span></div>
+            </div>
+            <div class="btn-row"><a class="btn btn--ghost btn--sm" href="#/profile">Мои сертификаты</a></div>
+          </div>
+          <section class="today-full" id="home-event" hidden></section>
+          <div class="today-card today-full" id="home-mats" hidden></div>
+          <div class="today-card today-full" id="install-card" hidden></div>
+          <div class="today-links today-full">
+            <a href="#/law">${law} Нормативная база</a>
+            <a href="#/law/buh">${law} Бухгалтерия: касса и налоги</a>
+            ${teamReady() ? '<a href="#/team">👥 К кому обращаться</a>' : ''}
+          </div>
+        </div>
+      </div>
+      <div class="wrap">
+        <section class="section" id="top10" aria-live="polite"></section>
+        ${pillarsHtml()}
+      </div>`;
+  }
+
+  async function loadTodayExtras() {
+    loadHomeEvent();
+    call('top').then((r) => {
+      const b = document.getElementById('me-place');
+      if (b) b.textContent = r.me ? r.me.place : '—';
+      const box = document.getElementById('top10');
+      if (box) box.innerHTML = topHtml(r, false);
+    }).catch(() => {});
+    call('materials').then((r) => {
+      mats.list = r.materials;
+      const box = document.getElementById('home-mats');
+      const fresh = r.materials.slice(0, 3);
+      if (!box || !fresh.length) return;
+      box.hidden = false;
+      box.innerHTML = `<h2>Новое в материалах</h2><div class="mat-mini">${fresh.map((m) => `
+        <a href="${matUrl(m)}" target="_blank" rel="noopener"><span class="pdf">PDF</span><span><b>${esc(m.title)}</b><small>${esc(m.brand || CATEGORIES[m.category] || '')} · ${formatDate(m.added)}</small></span></a>`).join('')}</div>
+        <div class="btn-row"><a class="btn btn--ghost btn--sm" href="#/materials">Все материалы</a></div>`;
+    }).catch(() => {});
+    renderInstallCard();
+  }
+
+  /* ───────────── Установка на телефон (PWA) ───────────── */
+  let installPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; renderInstallCard(); });
+  const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  function renderInstallCard() {
+    const box = document.getElementById('install-card');
+    if (!box) return;
+    let dismissed = false;
+    try { dismissed = localStorage.getItem('viva-install-dismissed') === '1'; } catch (e) { /* без хранилища */ }
+    const mobile = window.matchMedia('(max-width: 1100px)').matches;
+    if (isStandalone() || dismissed || (!installPrompt && !(isIOS() && mobile))) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = `<div class="install-card"><img src="img/icon-192.png" alt="">
+      <div class="grow"><b>Установите ВИВААКАДЕМИЮ на телефон</b>
+        <p class="muted small">${installPrompt ? 'Откроется как приложение — без адресной строки, в одно касание.' : 'В Safari нажмите «Поделиться» <span aria-hidden="true">⬆️</span> и выберите «На экран „Домой“».'}</p></div></div>
+      <div class="btn-row">${installPrompt ? '<button class="btn btn--primary btn--sm" data-install>Установить</button>' : ''}<button class="btn btn--ghost btn--sm" data-install-dismiss>Скрыть</button></div>`;
+  }
+
   function viewHome() {
+    if (mode === 'server' && user) return viewToday();
     const totalLessons = COURSES.reduce((s, c) => s + c.lessons.length, 0);
     const totalQ = COURSES.reduce((s, c) => s + c.quiz.length, 0);
     const inProgress = COURSES.filter((c) => courseProgress(c) > 0 && !isPassed(c));
@@ -327,8 +427,6 @@
           ${teamReady() ? '<a class="quick-link" href="#/team"><span aria-hidden="true">👥</span><b>К кому обращаться</b><small>Кто в Вивафарм отвечает за ваш вопрос</small></a>' : ''}
           <a class="quick-link" href="#/profile"><span aria-hidden="true">🎓</span><b>Мои сертификаты</b><small>Прогресс и документы в личном кабинете</small></a>
         </div>
-        ${mode === 'server' && user ? '<section class="section" id="home-event" hidden></section>' : ''}
-        ${mode === 'server' && user ? '<section class="section" id="top10" aria-live="polite"></section>' : ''}
         <section class="section">
           <div class="section__head">
             <div><h2>${inProgress.length ? 'Продолжить обучение' : 'Популярные курсы'}</h2></div>
@@ -1020,7 +1118,7 @@
     const total = COURSES.length;
     const passed = COURSES.filter(isPassed);
     const extDone = COURSES.filter((c) => !isQuizPassed(c) && legacyRes(c)).length;
-    const overall = Math.round(COURSES.reduce((s, c) => s + courseProgress(c), 0) / total);
+    const overall = overallProgress();
     const r = 60, circ = 2 * Math.PI * r;
     const rows = COURSES.map((c) => {
       const next = nextStepFor(c);
@@ -1683,7 +1781,7 @@
     if (page !== 'quiz') quiz = null;
     stopPillars();
     app.innerHTML = html;
-    if (!page) { startPillars(); loadTop('top10', false); if (mode === 'server' && user) loadHomeEvent(); }
+    if (!page) { startPillars(); if (mode === 'server' && user) loadTodayExtras(); }
     if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
     if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
@@ -1701,6 +1799,7 @@
 
   function updateNav(active) {
     const loggedOut = mode === 'server' && !user;
+    document.body.classList.toggle('logged-in', !!user && mode !== 'error');
     document.querySelectorAll('[data-nav]').forEach((a) => {
       a.classList.toggle('active', a.dataset.nav === active);
       a.hidden = loggedOut || (a.dataset.nav === 'admin' && !canViewAdmin()) || ((a.dataset.nav === 'materials' || a.dataset.nav === 'events') && mode !== 'server');
@@ -1765,6 +1864,18 @@
       return;
     }
     if (t.hasAttribute('data-tg-link')) { connectTelegram(); return; }
+    if (t.hasAttribute('data-install') && installPrompt) {
+      installPrompt.prompt();
+      try { await installPrompt.userChoice; } catch (err) { /* закрыли окно */ }
+      installPrompt = null;
+      renderInstallCard();
+      return;
+    }
+    if (t.hasAttribute('data-install-dismiss')) {
+      try { localStorage.setItem('viva-install-dismissed', '1'); } catch (err) { /* без хранилища */ }
+      renderInstallCard();
+      return;
+    }
     if (t.hasAttribute('data-tg-unlink')) {
       try { await call('tg_unlink', {}); toast('Уведомления отключены'); renderTgPanel(); } catch (err) { toast(err.message); }
       return;
@@ -2089,4 +2200,8 @@
 
   window.addEventListener('hashchange', route);
   boot().then(route);
+  // Установка на телефон как приложение (нужен service worker; он ничего не кэширует)
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 })();
