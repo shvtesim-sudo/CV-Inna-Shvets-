@@ -83,8 +83,7 @@ if ($action === 'materials') {
 if ($action === 'material_file') {
     require_user();
     $m = q('SELECT * FROM materials WHERE id = ?', [(int)($_GET['id'] ?? 0)])->fetch();
-    $path = $m ? materials_dir() . '/' . basename($m['file']) : '';
-    if (!$m || !is_file($path)) {
+    if (!$m) {
         fail(404, 'not_found', 'Материал не найден.');
     }
     $name = preg_replace('/[^\p{L}\p{N} ._-]+/u', '', $m['title']) ?: 'material';
@@ -93,12 +92,20 @@ if ($action === 'material_file') {
         $ascii = 'vivaacademy-material-' . (int)$m['id'] . '.pdf';
     }
     header('Content-Type: application/pdf');
-    header('Content-Length: ' . filesize($path));
+    header('Content-Length: ' . (int)$m['size']);
     header('Cache-Control: private, max-age=86400');
     header('X-Content-Type-Options: nosniff');
     header('Content-Disposition: ' . (!empty($_GET['dl']) ? 'attachment' : 'inline')
         . '; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($name . '.pdf'));
-    readfile($path);
+    // По одной части за запрос — не держим весь файл в памяти
+    for ($i = 0;; $i++) {
+        $v = q('SELECT data FROM material_chunks WHERE upload = ? AND idx = ?', [$m['file'], $i])->fetchColumn();
+        if ($v === false) {
+            break;
+        }
+        echo chunk_data($v);
+        flush();
+    }
     exit;
 }
 
@@ -497,25 +504,19 @@ switch ($action) {
         $token = preg_replace('/[^a-f0-9]/', '', str_in('upload', 64));
         $index = (int)(input()['index'] ?? -1);
         $data = base64_decode((string)(input()['data'] ?? ''), true);
-        if (strlen($token) !== 32 || $index < 0 || $data === false || $data === '' || strlen($data) > 2 * 1024 * 1024) {
+        if (strlen($token) !== 32 || $index < 0 || $index > 300 || $data === false || $data === '' || strlen($data) > 1024 * 1024) {
             fail(422, 'invalid', 'Некорректная часть файла.');
         }
-        $part = materials_dir() . '/upload-' . $token . '.part';
         if ($index === 0) {
             if (substr($data, 0, 5) !== '%PDF-') {
                 fail(422, 'invalid', 'Это не PDF-файл. Сохраните презентацию в PDF и загрузите снова.');
             }
-            @unlink($part);
-        } elseif (!is_file($part) || (int)(input()['offset'] ?? -1) !== filesize($part)) {
+            q('DELETE FROM material_chunks WHERE upload = ?', [$token]);
+        } elseif ((int)q('SELECT COUNT(*) FROM material_chunks WHERE upload = ?', [$token])->fetchColumn() !== $index) {
             fail(409, 'order', 'Загрузка прервалась. Начните заново.');
         }
-        if (filesize($part) + strlen($data) > 200 * 1024 * 1024) {
-            @unlink($part);
-            fail(413, 'too_big', 'Файл больше 200 МБ.');
-        }
-        file_put_contents($part, $data, FILE_APPEND | LOCK_EX);
-        clearstatcache();
-        json_out(['ok' => true, 'size' => filesize($part)]);
+        put_chunk($token, $index, $data);
+        json_out(['ok' => true]);
 
     case 'admin_material_save':
         require_admin();
@@ -530,21 +531,24 @@ switch ($action) {
             json_out(['ok' => true]);
         }
         $token = preg_replace('/[^a-f0-9]/', '', str_in('upload', 64));
-        $part = materials_dir() . '/upload-' . $token . '.part';
-        if (strlen($token) !== 32 || !is_file($part)) {
+        $size = 0;
+        foreach (q('SELECT data FROM material_chunks WHERE upload = ?', [$token]) as $r) {
+            $size += strlen(chunk_data($r['data']));
+        }
+        if (strlen($token) !== 32 || !$size) {
             fail(422, 'invalid', 'Сначала загрузите файл.');
         }
-        $file = bin2hex(random_bytes(16)) . '.pdf';
-        rename($part, materials_dir() . '/' . $file);
         q('INSERT INTO materials (title, brand, category, description, course_id, file, original_name, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          array_merge($fields, [$file, str_in('name', 200), filesize(materials_dir() . '/' . $file), now()]));
+          array_merge($fields, [$token, str_in('name', 200), $size, now()]));
+        // Части брошенных загрузок старше суток
+        q('DELETE FROM material_chunks WHERE created_at < ? AND upload NOT IN (SELECT file FROM materials)', [gmdate('Y-m-d H:i:s', time() - 86400)]);
         json_out(['ok' => true]);
 
     case 'admin_material_delete':
         require_admin();
         $m = q('SELECT file FROM materials WHERE id = ?', [(int)(input()['id'] ?? 0)])->fetch();
         if ($m) {
-            @unlink(materials_dir() . '/' . basename($m['file']));
+            q('DELETE FROM material_chunks WHERE upload = ?', [$m['file']]);
             q('DELETE FROM materials WHERE id = ?', [(int)(input()['id'] ?? 0)]);
         }
         json_out(['ok' => true]);
