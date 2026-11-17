@@ -70,6 +70,38 @@ if ($action === 'me') {
     ]);
 }
 
+// Учебные материалы: список и файл — только вошедшим
+if ($action === 'materials') {
+    require_user();
+    try {
+        $rows = q('SELECT * FROM materials ORDER BY created_at DESC, id DESC')->fetchAll();
+    } catch (Throwable $e) {
+        $rows = [];
+    }
+    json_out(['materials' => array_map('material_row', $rows)]);
+}
+if ($action === 'material_file') {
+    require_user();
+    $m = q('SELECT * FROM materials WHERE id = ?', [(int)($_GET['id'] ?? 0)])->fetch();
+    $path = $m ? materials_dir() . '/' . basename($m['file']) : '';
+    if (!$m || !is_file($path)) {
+        fail(404, 'not_found', 'Материал не найден.');
+    }
+    $name = preg_replace('/[^\p{L}\p{N} ._-]+/u', '', $m['title']) ?: 'material';
+    $ascii = preg_replace('/[^A-Za-z0-9._-]+/', '_', $m['original_name']);
+    if (!preg_match('/[A-Za-z0-9]{2}/', pathinfo($ascii, PATHINFO_FILENAME))) {
+        $ascii = 'vivaacademy-material-' . (int)$m['id'] . '.pdf';
+    }
+    header('Content-Type: application/pdf');
+    header('Content-Length: ' . filesize($path));
+    header('Cache-Control: private, max-age=86400');
+    header('X-Content-Type-Options: nosniff');
+    header('Content-Disposition: ' . (!empty($_GET['dl']) ? 'attachment' : 'inline')
+        . '; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($name . '.pdf'));
+    readfile($path);
+    exit;
+}
+
 // Топ-10 по результатам тестов — для всех вошедших сотрудников
 if ($action === 'top') {
     $u = require_user();
@@ -458,6 +490,64 @@ switch ($action) {
             ]), [round($sum / max(1, count($list))), $certs, count($old)], $cells), ';');
         }
         exit;
+
+    // Загрузка PDF частями (обходит ограничение хостинга на размер одного запроса)
+    case 'admin_material_chunk':
+        require_admin();
+        $token = preg_replace('/[^a-f0-9]/', '', str_in('upload', 64));
+        $index = (int)(input()['index'] ?? -1);
+        $data = base64_decode((string)(input()['data'] ?? ''), true);
+        if (strlen($token) !== 32 || $index < 0 || $data === false || $data === '' || strlen($data) > 2 * 1024 * 1024) {
+            fail(422, 'invalid', 'Некорректная часть файла.');
+        }
+        $part = materials_dir() . '/upload-' . $token . '.part';
+        if ($index === 0) {
+            if (substr($data, 0, 5) !== '%PDF-') {
+                fail(422, 'invalid', 'Это не PDF-файл. Сохраните презентацию в PDF и загрузите снова.');
+            }
+            @unlink($part);
+        } elseif (!is_file($part) || (int)(input()['offset'] ?? -1) !== filesize($part)) {
+            fail(409, 'order', 'Загрузка прервалась. Начните заново.');
+        }
+        if (filesize($part) + strlen($data) > 200 * 1024 * 1024) {
+            @unlink($part);
+            fail(413, 'too_big', 'Файл больше 200 МБ.');
+        }
+        file_put_contents($part, $data, FILE_APPEND | LOCK_EX);
+        clearstatcache();
+        json_out(['ok' => true, 'size' => filesize($part)]);
+
+    case 'admin_material_save':
+        require_admin();
+        $id = (int)(input()['id'] ?? 0);
+        $title = str_in('title', 200);
+        if ($title === '') {
+            fail(422, 'invalid', 'Укажите название материала.');
+        }
+        $fields = [$title, str_in('brand', 120), str_in('category', 40), str_in('description', 2000), str_in('course', 40)];
+        if ($id) {
+            q('UPDATE materials SET title = ?, brand = ?, category = ?, description = ?, course_id = ? WHERE id = ?', array_merge($fields, [$id]));
+            json_out(['ok' => true]);
+        }
+        $token = preg_replace('/[^a-f0-9]/', '', str_in('upload', 64));
+        $part = materials_dir() . '/upload-' . $token . '.part';
+        if (strlen($token) !== 32 || !is_file($part)) {
+            fail(422, 'invalid', 'Сначала загрузите файл.');
+        }
+        $file = bin2hex(random_bytes(16)) . '.pdf';
+        rename($part, materials_dir() . '/' . $file);
+        q('INSERT INTO materials (title, brand, category, description, course_id, file, original_name, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          array_merge($fields, [$file, str_in('name', 200), filesize(materials_dir() . '/' . $file), now()]));
+        json_out(['ok' => true]);
+
+    case 'admin_material_delete':
+        require_admin();
+        $m = q('SELECT file FROM materials WHERE id = ?', [(int)(input()['id'] ?? 0)])->fetch();
+        if ($m) {
+            @unlink(materials_dir() . '/' . basename($m['file']));
+            q('DELETE FROM materials WHERE id = ?', [(int)(input()['id'] ?? 0)]);
+        }
+        json_out(['ok' => true]);
 
     default:
         fail(404, 'unknown', 'Неизвестное действие.');

@@ -308,6 +308,7 @@
           <div class="stat"><b>${Object.keys(CATEGORIES).length}</b><span>направлений</span></div>`}
         </div>
         <div class="quick-links">
+          ${mode === 'server' ? '<a class="quick-link" href="#/materials"><span aria-hidden="true">📚</span><b>Учебные материалы</b><small>Презентации брендов и тренингов</small></a>' : ''}
           <a class="quick-link" href="#/law"><span aria-hidden="true">⚖️</span><b>Нормативная база</b><small>Законы и приказы ПМР для аптеки и бухгалтерии</small></a>
           ${teamReady() ? '<a class="quick-link" href="#/team"><span aria-hidden="true">👥</span><b>К кому обращаться</b><small>Кто в Вивафарм отвечает за ваш вопрос</small></a>' : ''}
           <a class="quick-link" href="#/profile"><span aria-hidden="true">🎓</span><b>Мои сертификаты</b><small>Прогресс и документы в личном кабинете</small></a>
@@ -539,6 +540,127 @@
   }
 
   let filter = { cat: 'all', q: '' };
+
+  /* ───────────── Учебные материалы (презентации PDF) ───────────── */
+  let mats = { list: null, cat: 'all', q: '' };
+  const matUrl = (m, dl) => `${API}?action=material_file&id=${m.id}${dl ? '&dl=1' : ''}`;
+  const fileSize = (b) => b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} МБ` : `${Math.max(1, Math.round(b / 1024))} КБ`;
+
+  function viewMaterials() {
+    return `
+      <div class="wrap">
+        <div class="crumbs"><a href="#/">Главная</a> / Учебные материалы</div>
+        <div class="section__head"><div><h1 style="margin:0">Учебные материалы</h1>
+          <p>Презентации брендов и тренингов в исходном виде. Откройте для просмотра или скачайте в PDF.</p></div>
+          ${isAdmin() ? '<button class="btn btn--primary btn--sm" data-mat-new>+ Загрузить презентацию</button>' : ''}</div>
+        <input class="search" id="mat-q" type="search" placeholder="Поиск: бренд, тема, продукт…" value="${esc(mats.q)}" aria-label="Поиск материалов">
+        <div class="filters" id="mat-cats" role="group" aria-label="Направления"></div>
+        <div class="mat-grid" id="mat-grid"><p class="muted">Загружаем материалы…</p></div>
+      </div>`;
+  }
+
+  async function loadMaterials() {
+    try {
+      mats.list = (await call('materials')).materials;
+    } catch (e) {
+      const g = document.getElementById('mat-grid');
+      if (g) g.innerHTML = formError(e.message);
+      return;
+    }
+    renderMaterials();
+  }
+
+  function renderMaterials() {
+    const grid = document.getElementById('mat-grid');
+    if (!grid || !mats.list) return;
+    const used = Array.from(new Set(mats.list.map((m) => m.category).filter((k) => CATEGORIES[k])));
+    if (mats.cat !== 'all' && !used.includes(mats.cat)) mats.cat = 'all';
+    document.getElementById('mat-cats').innerHTML = used.length > 1 ? [['all', 'Все']].concat(used.map((k) => [k, CATEGORIES[k]]))
+      .map(([k, v]) => `<button class="chip" data-mat-cat="${k}" aria-pressed="${mats.cat === k}">${esc(v)}</button>`).join('') : '';
+    // Каждое слово запроса ищется по основе (без окончания): «выпадение» найдёт «выпадения»
+    const words = mats.q.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+      .map((w) => (w.length > 5 ? w.slice(0, w.length - 2) : w));
+    const list = mats.list.filter((m) => {
+      if (mats.cat !== 'all' && m.category !== mats.cat) return false;
+      const hay = (m.title + ' ' + m.brand + ' ' + m.description + ' ' + (CATEGORIES[m.category] || '')).toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+    if (!mats.list.length) {
+      grid.innerHTML = `<div class="empty">Материалов пока нет.${isAdmin() ? ' Нажмите «+ Загрузить презентацию».' : ''}</div>`;
+      return;
+    }
+    const fresh = Date.now() - 14 * 864e5;
+    grid.innerHTML = list.length ? list.map((m) => {
+      const c = m.course && findCourse(m.course);
+      return `
+        <article class="mat-card">
+          <a class="mat-cover" href="${matUrl(m)}" target="_blank" rel="noopener" aria-label="Открыть «${esc(m.title)}»">
+            <span class="mat-cover__type">PDF</span><span class="mat-cover__brand">${esc(m.brand || CATEGORIES[m.category] || 'Вивафарм')}</span>
+          </a>
+          <div class="mat-body">
+            <div class="meta">${m.category && CATEGORIES[m.category] ? `<span>${esc(CATEGORIES[m.category])}</span>` : ''}<span>${fileSize(m.size)}</span><span>${formatDate(m.added)}</span>${m.added > fresh ? '<span class="badge badge--done">новое</span>' : ''}</div>
+            <h3>${esc(m.title)}</h3>
+            ${m.description ? `<p class="muted small">${esc(m.description)}</p>` : ''}
+            <div class="btn-row">
+              <a class="btn btn--primary btn--sm" href="${matUrl(m)}" target="_blank" rel="noopener">Открыть</a>
+              <a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать</a>
+              ${c ? `<a class="btn btn--ghost btn--sm" href="#/course/${c.id}">${isPassed(c) ? 'Курс пройден ✓' : 'Тест по теме'}</a>` : ''}
+            </div>
+            ${isAdmin() ? `<div class="mat-admin"><button class="link-btn" data-mat-edit="${m.id}">Изменить</button><button class="link-btn" data-mat-delete="${m.id}">Удалить</button></div>` : ''}
+          </div>
+        </article>`;
+    }).join('') : '<div class="empty">Ничего не найдено. Попробуйте другой запрос.</div>';
+  }
+
+  function openMaterialForm(m) {
+    const isNew = !m;
+    m = m || { id: 0, title: '', brand: '', category: '', description: '', course: '' };
+    modal.innerHTML = `
+      <form id="material-form" class="modal__body">
+        <h2>${isNew ? 'Новая презентация' : 'Материал'}</h2>
+        <input type="hidden" name="id" value="${m.id}">
+        ${isNew ? `<div class="field"><label for="mat-file">Файл PDF</label><input id="mat-file" name="file" type="file" accept="application/pdf,.pdf" required>
+          <p class="muted small">Из PowerPoint или Canva: «Файл → Сохранить как / Скачать → PDF». Файл загружается без изменений.</p></div>` : ''}
+        <div class="field"><label for="mat-title">Название</label><input id="mat-title" name="title" required maxlength="200" value="${esc(m.title)}"></div>
+        <div class="field-row">
+          <div class="field"><label for="mat-brand">Бренд или автор</label><input id="mat-brand" name="brand" maxlength="120" value="${esc(m.brand)}" placeholder="например, Гельтек"></div>
+          <div class="field"><label for="mat-cat">Направление</label><select id="mat-cat" name="category">
+            <option value="">—</option>${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${m.category === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+          </select></div>
+        </div>
+        <div class="field"><label for="mat-desc">Коротко о чём (1–2 предложения)</label><textarea id="mat-desc" name="description" rows="3" maxlength="2000">${esc(m.description)}</textarea></div>
+        <div class="field"><label for="mat-course">Курс с тестом по этой теме (необязательно)</label><select id="mat-course" name="course">
+          <option value="">—</option>${COURSES.map((c) => `<option value="${c.id}" ${m.course === c.id ? 'selected' : ''}>${esc(c.title)}</option>`).join('')}
+        </select></div>
+        <div class="form-msg"></div>
+        <p class="muted small" id="mat-progress" aria-live="polite"></p>
+        <div class="btn-row"><button class="btn btn--primary">${isNew ? 'Загрузить' : 'Сохранить'}</button><button type="button" class="btn btn--ghost" data-close>Отмена</button></div>
+      </form>`;
+    modal.showModal();
+    const file = modal.querySelector('#mat-file');
+    if (file) {
+      file.addEventListener('change', () => {
+        const t = modal.querySelector('#mat-title');
+        if (file.files[0] && !t.value) t.value = file.files[0].name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
+      });
+    }
+  }
+
+  // Файл уходит на сервер частями по 768 КБ: так не мешают ограничения хостинга на размер запроса
+  async function uploadPdf(file, onProgress) {
+    const head = new Uint8Array(await file.slice(0, 5).arrayBuffer());
+    if (String.fromCharCode(...head) !== '%PDF-') throw new Error('Это не PDF-файл. Сохраните презентацию в PDF и загрузите снова.');
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+    const size = 768 * 1024;
+    for (let i = 0, off = 0; off < file.size; i++, off += size) {
+      const buf = new Uint8Array(await file.slice(off, off + size).arrayBuffer());
+      let bin = '';
+      for (let k = 0; k < buf.length; k += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(k, k + 0x8000));
+      await call('admin_material_chunk', { upload: token, index: i, offset: off, data: btoa(bin) });
+      onProgress(Math.min(100, Math.round(((off + buf.length) / file.size) * 100)));
+    }
+    return token;
+  }
 
   function viewCourses() {
     const chips = [['all', 'Все']].concat(Object.entries(CATEGORIES))
@@ -1334,6 +1456,7 @@
     else if (page === 'law') { html = viewLaw({ buh: 'acc', pharm: 'pharm', local: 'local' }[id] || null); }
     else if (page === 'team' && teamReady()) html = viewTeam();
     else if (page === 'profile') html = viewProfile();
+    else if (page === 'materials' && mode === 'server') html = viewMaterials();
     else if (page === 'admin' && canViewAdmin()) html = viewAdmin();
     else if (page === 'verify' && id) html = viewVerify(decodeURIComponent(id));
     else if (page === 'xcert' && id) { html = viewExtCertificate(decodeURIComponent(id)); nav = 'profile'; }
@@ -1349,6 +1472,7 @@
     if (!page) { startPillars(); loadTop('top10', false); }
     if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
+    if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
     if (page === 'admin' && canViewAdmin()) loadAdmin();
     if (page === 'verify' && id) loadVerify(decodeURIComponent(id));
 
@@ -1363,7 +1487,7 @@
     const loggedOut = mode === 'server' && !user;
     document.querySelectorAll('[data-nav]').forEach((a) => {
       a.classList.toggle('active', a.dataset.nav === active);
-      a.hidden = loggedOut || (a.dataset.nav === 'admin' && !canViewAdmin());
+      a.hidden = loggedOut || (a.dataset.nav === 'admin' && !canViewAdmin()) || (a.dataset.nav === 'materials' && mode !== 'server');
     });
     document.querySelector('.nav-logout').hidden = !(mode === 'server' && user);
     document.getElementById('nav').classList.remove('open');
@@ -1403,6 +1527,23 @@
     if (t.dataset.teamTopic) {
       teamTopic = teamTopic === t.dataset.teamTopic ? null : t.dataset.teamTopic;
       app.innerHTML = viewTeam();
+      return;
+    }
+    if (t.dataset.matCat) {
+      mats.cat = t.dataset.matCat;
+      renderMaterials();
+      return;
+    }
+    if (t.hasAttribute('data-mat-new')) { openMaterialForm(null); return; }
+    if (t.dataset.matEdit) { openMaterialForm(mats.list.find((m) => m.id === Number(t.dataset.matEdit))); return; }
+    if (t.dataset.matDelete) {
+      const m = mats.list.find((x) => x.id === Number(t.dataset.matDelete));
+      if (!m || !confirm(`Удалить «${m.title}»? Файл будет удалён с сервера.`)) return;
+      try {
+        await call('admin_material_delete', { id: m.id });
+        toast('Материал удалён');
+        await loadMaterials();
+      } catch (err) { toast(err.message); }
       return;
     }
     if (t.dataset.cat) {
@@ -1474,6 +1615,11 @@
       law.q = e.target.value;
       clearTimeout(renderLaw.timer);
       renderLaw.timer = setTimeout(renderLaw, 150);
+      return;
+    }
+    if (e.target.id === 'mat-q') {
+      mats.q = e.target.value;
+      renderMaterials();
       return;
     }
     if (e.target.classList.contains('search') && e.target.id !== 'admin-q') {
@@ -1565,6 +1711,25 @@
         if (!rows || !rows.length) throw new Error('В файле не найдены колонки «логин», «тест», «результат» или строки с результатами.');
         await importResults(rows, form);
         await loadAdmin();
+        return;
+      }
+      if (formId === 'material-form') {
+        const data = {
+          id: Number(f.id.value) || 0, title: f.title.value, brand: f.brand.value,
+          category: f.category.value, description: f.description.value, course: f.course.value
+        };
+        if (!data.id) {
+          const file = f.file.files[0];
+          if (!file) throw new Error('Выберите файл PDF.');
+          const pr = form.querySelector('#mat-progress');
+          data.upload = await uploadPdf(file, (p) => { pr.textContent = `Загружено ${p}% из ${fileSize(file.size)}…`; });
+          data.name = file.name;
+          pr.textContent = 'Сохраняем…';
+        }
+        await call('admin_material_save', data);
+        modal.close();
+        toast(data.id ? 'Изменения сохранены' : 'Презентация загружена');
+        await loadMaterials();
         return;
       }
       if (formId === 'import-form') {
