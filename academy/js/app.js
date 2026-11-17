@@ -329,6 +329,7 @@
           <div class="today-card today-full" id="home-mats" hidden></div>
           <div class="today-card today-full" id="install-card" hidden></div>
           <div class="today-links today-full">
+            <a href="#/drugs">💊 Справочник по МНН</a>
             <a href="#/law">${law} Нормативная база</a>
             <a href="#/law/buh">${law} Бухгалтерия: касса и налоги</a>
             ${teamReady() ? '<a href="#/team">👥 К кому обращаться</a>' : ''}
@@ -664,6 +665,97 @@
   }
 
   let filter = { cat: 'all', q: '' };
+
+  /* ───────────── Справочник по МНН ───────────── */
+  // Внешние справочники открываются в браузере сотрудника (поиск по ссылке), содержимое мы не копируем.
+  const DRUG_SOURCES = [
+    { name: 'Видаль', note: 'инструкции и описания препаратов', url: (q) => 'https://www.vidal.ru/search?t=all&q=' + encodeURIComponent(q) },
+    { name: 'РЛС', note: 'регистр лекарственных средств', url: (q) => 'https://www.rlsnet.ru/search_result.htm?word=' + encodeURIComponent(q) }
+  ];
+  let drugs = { q: '', timer: null };
+  const norm = (t) => String(t || '').toLowerCase().replace(/ё/g, 'е');
+
+  function viewDrugs() {
+    return `
+      <div class="wrap">
+        <div class="crumbs"><a href="#/">Главная</a> / Справочник по МНН</div>
+        <h1>Справочник по МНН</h1>
+        <p class="muted">Введите действующее вещество или название препарата — покажем, что о нём сказано в курсах Академии, какие препараты с ним есть в каталоге Вивафарм, и откроем инструкцию в справочниках.</p>
+        <input class="search" id="drug-q" type="search" list="drug-list" placeholder="Например: ибупрофен, омепразол, левоцетиризин…" value="${esc(drugs.q)}" aria-label="Поиск по МНН" autocomplete="off">
+        <datalist id="drug-list"></datalist>
+        <div id="drug-body" aria-live="polite"></div>
+      </div>`;
+  }
+
+  function loadAssortment() {
+    if (window.ASSORTMENT || loadAssortment.p) return loadAssortment.p || Promise.resolve();
+    loadAssortment.p = new Promise((resolve) => {
+      const sc = document.createElement('script');
+      sc.src = 'js/assortment.js?v=' + encodeURIComponent(window.APP_VERSION || '');
+      sc.onload = resolve; sc.onerror = resolve;
+      document.head.appendChild(sc);
+    });
+    return loadAssortment.p;
+  }
+
+  async function initDrugs() {
+    renderDrugs();
+    await loadAssortment();
+    const dl = document.getElementById('drug-list');
+    if (dl && window.ASSORTMENT) {
+      const mnn = Array.from(new Set(window.ASSORTMENT.rows.map((r) => r[3]).filter((m) => m && m.length < 60))).sort((a, b) => a.localeCompare(b, 'ru'));
+      dl.innerHTML = mnn.map((m) => `<option value="${esc(m)}">`).join('');
+    }
+    renderDrugs();
+  }
+
+  function snippet(text, i, len) {
+    const from = Math.max(0, i - 90), to = Math.min(text.length, i + len + 110);
+    return (from ? '…' : '') + esc(text.slice(from, i)) + '<mark>' + esc(text.slice(i, i + len)) + '</mark>' + esc(text.slice(i + len, to)) + (to < text.length ? '…' : '');
+  }
+
+  function renderDrugs() {
+    const box = document.getElementById('drug-body');
+    if (!box) return;
+    const raw = drugs.q.trim();
+    const q = norm(raw);
+    if (q.length < 3) {
+      box.innerHTML = '<p class="muted small" style="margin-top:16px">Введите не меньше 3 букв. Ищем по русскому названию МНН или торговому названию.</p>';
+      return;
+    }
+    // Курсы Академии
+    const hits = [];
+    COURSES.forEach((c) => c.lessons.forEach((l, li) => {
+      const text = l.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const i = norm(text).indexOf(q);
+      if (i >= 0) hits.push({ c, l, li, snip: snippet(text, i, raw.length) });
+    }));
+    // Каталог Вивафарм (снимок)
+    const A = window.ASSORTMENT;
+    const items = A ? A.rows.filter((r) => norm(r[0]).includes(q) || norm(r[3]).includes(q))
+      .map((r) => ({ n: r[0], u: A.base + r[1], c: A.cats[r[2]], m: r[3] })) : [];
+    const src = DRUG_SOURCES.map((s) => `<a class="btn btn--ghost btn--sm" href="${esc(s.url(raw))}" target="_blank" rel="noopener">${esc(s.name)} ↗<small>${esc(s.note)}</small></a>`).join('');
+    box.innerHTML = `
+      <section class="drug-sec">
+        <h2>Инструкция и описание</h2>
+        <div class="drug-src">${src}</div>
+        <p class="muted small">Откроется сайт справочника. Инструкции в российских справочниках могут отличаться от инструкции препарата, зарегистрированного в ПМР: при отпуске сверяйтесь с инструкцией в упаковке.</p>
+      </section>
+      <section class="drug-sec">
+        <h2>В курсах Академии <span class="muted">${hits.length}</span></h2>
+        ${hits.length ? `<ul class="drug-hits">${hits.slice(0, 20).map((h) => `
+          <li><a href="#/lesson/${h.c.id}/${h.li + 1}"><b>${h.c.icon} ${esc(h.c.title)}</b><small>Урок ${h.li + 1}. ${esc(h.l.title)}</small></a><p>${h.snip}</p></li>`).join('')}</ul>`
+          : '<p class="muted small">В уроках пока не упоминается. Если тема важна — напишите в учебный отдел, добавим.</p>'}
+      </section>
+      <section class="drug-sec">
+        <h2>В каталоге Вивафарм <span class="muted">${A ? items.length : '…'}</span></h2>
+        ${!A ? '<p class="muted small">Загружаем каталог…</p>' : items.length ? `<ul class="drug-items">${items.slice(0, 60).map((it) => `
+          <li><a href="${esc(it.u)}" target="_blank" rel="noopener">${esc(it.n)}</a><small>${esc(it.c)}${it.m ? ' · МНН: ' + esc(it.m) : ''}</small></li>`).join('')}</ul>
+          ${items.length > 60 ? `<p class="muted small">Показаны первые 60 из ${items.length}. Уточните запрос.</p>` : ''}`
+          : '<p class="muted small">В каталоге не найдено. Проверьте написание или поищите по торговому названию.</p>'}
+        ${A ? `<p class="muted small">Снимок каталога vivafarm.md от ${esc(A.date)}. Это не остатки: наличие и цену уточняйте в программе аптеки.</p>` : ''}
+      </section>`;
+  }
 
   /* ───────────── Афиша мероприятий ───────────── */
   let evs = { data: null };
@@ -1780,6 +1872,7 @@
     else if (page === 'profile') html = viewProfile();
     else if (page === 'materials' && mode === 'server') html = viewMaterials();
     else if (page === 'events' && mode === 'server') html = viewEvents();
+    else if (page === 'drugs') html = viewDrugs();
     else if (page === 'admin' && canViewAdmin()) html = viewAdmin();
     else if (page === 'verify' && id) html = viewVerify(decodeURIComponent(id));
     else if (page === 'xcert' && id) { html = viewExtCertificate(decodeURIComponent(id)); nav = 'profile'; }
@@ -1799,6 +1892,7 @@
     if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
     if (page === 'events' && mode === 'server') { if (evs.data) renderEvents(); loadEvents(); }
     if (page === 'profile' && mode === 'server') renderTgPanel();
+    if (page === 'drugs') initDrugs();
     if (page === 'admin' && canViewAdmin()) loadAdmin();
     if (page === 'verify' && id) loadVerify(decodeURIComponent(id));
 
@@ -1978,6 +2072,12 @@
       law.q = e.target.value;
       clearTimeout(renderLaw.timer);
       renderLaw.timer = setTimeout(renderLaw, 150);
+      return;
+    }
+    if (e.target.id === 'drug-q') {
+      drugs.q = e.target.value;
+      clearTimeout(drugs.timer);
+      drugs.timer = setTimeout(renderDrugs, 200);
       return;
     }
     if (e.target.id === 'mat-q') {
