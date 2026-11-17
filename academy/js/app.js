@@ -330,6 +330,7 @@
           <div class="today-card today-full" id="install-card" hidden></div>
           <div class="today-links today-full">
             <a href="#/drugs">💊 Справочник по МНН</a>
+            <a href="#/drugs/check">⚠️ Проверка взаимодействий</a>
             <a href="#/law">${law} Нормативная база</a>
             <a href="#/law/buh">${law} Бухгалтерия: касса и налоги</a>
             ${teamReady() ? '<a href="#/team">👥 К кому обращаться</a>' : ''}
@@ -675,11 +676,19 @@
   let drugs = { q: '', timer: null };
   const norm = (t) => String(t || '').toLowerCase().replace(/ё/g, 'е');
 
-  function viewDrugs() {
+  function drugTabs(tab) {
+    return `<div class="law-tabs drug-tabs" role="tablist">
+      <a class="law-tab" role="tab" href="#/drugs" aria-selected="${tab === 'search'}">Поиск по МНН</a>
+      <a class="law-tab" role="tab" href="#/drugs/check" aria-selected="${tab === 'check'}">Проверка взаимодействий</a></div>`;
+  }
+
+  function viewDrugs(tab) {
+    if (tab === 'check') return viewCheck();
     return `
       <div class="wrap">
         <div class="crumbs"><a href="#/">Главная</a> / Справочник по МНН</div>
         <h1>Справочник по МНН</h1>
+        ${drugTabs('search')}
         <p class="muted">Введите действующее вещество или название препарата — покажем, что о нём сказано в курсах Академии, какие препараты с ним есть в каталоге Вивафарм, и откроем инструкцию в справочниках.</p>
         <input class="search" id="drug-q" type="search" list="drug-list" placeholder="Например: ибупрофен, омепразол, левоцетиризин…" value="${esc(drugs.q)}" aria-label="Поиск по МНН" autocomplete="off">
         <datalist id="drug-list"></datalist>
@@ -755,6 +764,127 @@
           : '<p class="muted small">В каталоге не найдено. Проверьте написание или поищите по торговому названию.</p>'}
         ${A ? `<p class="muted small">Снимок каталога vivafarm.md от ${esc(A.date)}. Это не остатки: наличие и цену уточняйте в программе аптеки.</p>` : ''}
       </section>`;
+  }
+
+  /* ───────────── Проверка взаимодействий ───────────── */
+  let ix = { items: [] };
+  const SEV = {
+    contra: { label: 'Противопоказано', cls: 'contra', order: 0 },
+    high: { label: 'Опасно — нужен врач', cls: 'high', order: 1 },
+    mod: { label: 'Значимо — осторожность и контроль', cls: 'mod', order: 2 },
+    time: { label: 'Разнести по времени', cls: 'time', order: 3 }
+  };
+
+  function viewCheck() {
+    return `
+      <div class="wrap">
+        <div class="crumbs"><a href="#/">Главная</a> / <a href="#/drugs">Справочник по МНН</a> / Взаимодействия</div>
+        <h1>Проверка взаимодействий</h1>
+        ${drugTabs('check')}
+        <p class="muted">Добавьте 2–5 препаратов, которые человек принимает или покупает: МНН или торговое название. Можно добавить алкоголь, грейпфрут, зверобой, молочные продукты.</p>
+        <form id="ix-form" class="ix-form" autocomplete="off">
+          <input class="search" id="ix-q" list="drug-list" placeholder="Например: варфарин, Нурофен, кларитромицин…" aria-label="Препарат">
+          <button class="btn btn--primary">Добавить</button>
+        </form>
+        <datalist id="drug-list"></datalist>
+        <div class="ix-extras">${IX.extras.map((x) => `<button type="button" class="chip" data-ix-add="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div>
+        <div id="ix-body" aria-live="polite"></div>
+      </div>`;
+  }
+
+  function ixGroups(text) {
+    const t = ' ' + norm(text) + ' ';
+    return Object.keys(IX.groups).filter((g) => IX.groups[g].s.some((stem) => t.includes(norm(stem))));
+  }
+  const asList = (x) => (Array.isArray(x) ? x : [x]);
+
+  function ixCheck(items) {
+    const found = [];
+    const seen = new Set();
+    const add = (f) => { const k = f.key; if (!seen.has(k)) { seen.add(k); found.push(f); } };
+    const triples = [];
+    IX.triples.forEach((tr, ti) => {
+      const who = tr.g.map((g) => items.findIndex((it) => it.groups.includes(g)));
+      if (who.every((i) => i >= 0) && new Set(who).size >= 2) {
+        triples.push(tr);
+        add({ key: 'tr' + ti, sev: tr.sev, names: Array.from(new Set(who)).map((i) => items[i].name), t: tr.t, d: tr.d, ref: tr.ref });
+      }
+    });
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const A = items[i], B = items[j];
+        IX.rules.forEach((r, ri) => {
+          const ra = asList(r.a), rb = asList(r.b);
+          const hit = (ra.some((g) => A.groups.includes(g)) && rb.some((g) => B.groups.includes(g)))
+                   || (ra.some((g) => B.groups.includes(g)) && rb.some((g) => A.groups.includes(g)));
+          if (!hit) return;
+          if (triples.length && r.a === 'raas' && r.b === 'nsaid') return; // уже учтено в «тройном ударе»
+          add({ key: ri + ':' + i + ':' + j, sev: r.sev, names: [A.name, B.name], t: r.t, d: r.d, ref: r.ref });
+        });
+        Object.keys(IX.duplicates).forEach((g) => {
+          if (A.groups.includes(g) && B.groups.includes(g)) {
+            const dup = IX.duplicates[g];
+            add({ key: 'dup' + g + i + j, sev: dup.sev, names: [A.name, B.name], t: dup.t, d: dup.d, ref: dup.ref });
+          }
+        });
+        const sa = A.groups.includes('sorbent'), sb = B.groups.includes('sorbent');
+        if (sa !== sb) add({ key: 'sorb' + i + j, sev: 'time', names: [A.name, B.name], t: 'Сорбент снижает всасывание других лекарств.', d: 'Интервал не менее 1,5–2 часов.', ref: 'interactions/4' });
+      }
+    }
+    return found.sort((x, y) => SEV[x.sev].order - SEV[y.sev].order);
+  }
+
+  function renderCheck() {
+    const box = document.getElementById('ix-body');
+    if (!box) return;
+    const items = ix.items;
+    const chips = items.map((it, k) => `<span class="ix-chip ${it.groups.length ? '' : 'ix-chip--unknown'}">${esc(it.name)}
+      <small>${it.groups.length ? esc(it.groups.map((g) => IX.groups[g].name).join(', ')) : 'нет в базе правил'}</small>
+      <button type="button" class="link-btn" data-ix-del="${k}" aria-label="Убрать ${esc(it.name)}">×</button></span>`).join('');
+    let res = '';
+    if (items.length < 2) {
+      res = '<p class="muted small">Добавьте ещё хотя бы один препарат.</p>';
+    } else {
+      const f = ixCheck(items);
+      res = f.length ? `<ul class="ix-list">${f.map((x) => `
+        <li class="ix-item ix-item--${SEV[x.sev].cls}">
+          <span class="ix-sev">${SEV[x.sev].label}</span>
+          <b>${x.names.map(esc).join(' + ')}</b>
+          <p>${esc(x.t)}</p>
+          <p class="ix-do"><b>Что делать:</b> ${esc(x.d)}</p>
+          ${x.ref ? `<a class="small" href="#/lesson/${x.ref}">Подробнее в уроке Академии →</a>` : ''}
+        </li>`).join('')}</ul>`
+        : `<div class="ix-none"><b>В базе Академии значимых взаимодействий не найдено.</b>
+           <p class="muted small">База охватывает самые важные для первого стола сочетания, но не все. Проверьте раздел «Взаимодействие» в инструкции${items.length ? ' или справочник: ' + items.map((it) => `<a href="${esc(DRUG_SOURCES[0].url(it.name))}" target="_blank" rel="noopener">${esc(it.name)} в Видале ↗</a>`).join(', ') : ''}.</p></div>`;
+    }
+    box.innerHTML = `${items.length ? `<div class="ix-chips">${chips}</div>
+      <button type="button" class="link-btn small" data-ix-clear>Очистить список</button>` : ''}
+      <section class="drug-sec">${res}</section>
+      <p class="muted small">Проверка опирается на ${IX.rules.length + IX.triples.length + Object.keys(IX.duplicates).length} правил из курсов Академии и не заменяет инструкцию и решение врача. Если препарат назначен врачом — не отменяйте его, а посоветуйте обсудить сочетание с врачом.</p>`;
+  }
+
+  async function initCheck() {
+    renderCheck();
+    await loadAssortment();
+    const dl = document.getElementById('drug-list');
+    if (dl && window.ASSORTMENT) {
+      const mnn = Array.from(new Set(window.ASSORTMENT.rows.map((r) => r[3]).filter((m) => m && m.length < 60))).sort((a, b) => a.localeCompare(b, 'ru'));
+      dl.innerHTML = mnn.map((m) => `<option value="${esc(m)}">`).join('');
+    }
+  }
+
+  function ixAdd(name) {
+    name = String(name || '').trim().slice(0, 120);
+    if (!name || ix.items.length >= 8 || ix.items.some((it) => norm(it.name) === norm(name))) return;
+    // Торговое название из каталога → добавляем МНН для распознавания
+    let text = name;
+    const A = window.ASSORTMENT;
+    if (A) {
+      const row = A.rows.find((r) => norm(r[0]).startsWith(norm(name)));
+      if (row && row[3]) text += ' ' + row[3];
+    }
+    ix.items.push({ name, groups: ixGroups(text) });
+    renderCheck();
   }
 
   /* ───────────── Афиша мероприятий ───────────── */
@@ -1872,7 +2002,7 @@
     else if (page === 'profile') html = viewProfile();
     else if (page === 'materials' && mode === 'server') html = viewMaterials();
     else if (page === 'events' && mode === 'server') html = viewEvents();
-    else if (page === 'drugs') html = viewDrugs();
+    else if (page === 'drugs') html = viewDrugs(id === 'check' ? 'check' : 'search');
     else if (page === 'admin' && canViewAdmin()) html = viewAdmin();
     else if (page === 'verify' && id) html = viewVerify(decodeURIComponent(id));
     else if (page === 'xcert' && id) { html = viewExtCertificate(decodeURIComponent(id)); nav = 'profile'; }
@@ -1892,7 +2022,7 @@
     if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
     if (page === 'events' && mode === 'server') { if (evs.data) renderEvents(); loadEvents(); }
     if (page === 'profile' && mode === 'server') renderTgPanel();
-    if (page === 'drugs') initDrugs();
+    if (page === 'drugs') { if (id === 'check') initCheck(); else initDrugs(); }
     if (page === 'admin' && canViewAdmin()) loadAdmin();
     if (page === 'verify' && id) loadVerify(decodeURIComponent(id));
 
@@ -1950,6 +2080,9 @@
       app.innerHTML = viewTeam();
       return;
     }
+    if (t.dataset.ixAdd) { ixAdd(t.dataset.ixAdd); return; }
+    if (t.dataset.ixDel !== undefined) { ix.items.splice(Number(t.dataset.ixDel), 1); renderCheck(); return; }
+    if (t.hasAttribute('data-ix-clear')) { ix.items = []; renderCheck(); return; }
     if (t.hasAttribute('data-ev-new')) { openEventForm(null); return; }
     if (t.dataset.evEdit) { openEventForm(evs.data.upcoming.concat(evs.data.past).find((x) => x.id === Number(t.dataset.evEdit))); return; }
     if (t.dataset.evList) { openEventList(Number(t.dataset.evList)); return; }
@@ -2174,6 +2307,12 @@
         if (!rows || !rows.length) throw new Error('В файле не найдены колонки «логин», «тест», «результат» или строки с результатами.');
         await importResults(rows, form);
         await loadAdmin();
+        return;
+      }
+      if (formId === 'ix-form') {
+        ixAdd(f[0].value);
+        f[0].value = '';
+        f[0].focus();
         return;
       }
       if (formId === 'event-form') {

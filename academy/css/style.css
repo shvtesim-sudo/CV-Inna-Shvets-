@@ -1129,3 +1129,28 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 .drug-items li { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .drug-items a { color: var(--text); }
 .drug-items small { display: block; color: var(--muted); font-size: .82rem; }
+
+/* Проверка взаимодействий */
+.drug-tabs { margin: 4px 0 16px; }
+.drug-tabs .law-tab { text-decoration: none; display: inline-block; }
+.ix-form { display: flex; gap: 10px; align-items: stretch; }
+.ix-form .search { flex: 1; margin: 0; }
+.ix-extras { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 8px; }
+.ix-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 6px; }
+.ix-chip { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 8px 10px 8px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); font-weight: 600; }
+.ix-chip small { flex-basis: 100%; order: 3; font-weight: 400; color: var(--muted); font-size: .76rem; }
+.ix-chip .link-btn { font-size: 1.2rem; line-height: 1; order: 2; text-decoration: none; }
+.ix-chip--unknown { border-style: dashed; }
+.ix-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.ix-item { border: 1px solid var(--border); border-left: 5px solid var(--border); border-radius: var(--radius); padding: 14px 18px; background: var(--surface); }
+.ix-item p { margin: 6px 0 0; }
+.ix-sev { display: table; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 3px 8px; border-radius: 6px; margin-bottom: 6px; }
+.ix-item--contra { border-left-color: #b42318; } .ix-item--contra .ix-sev { background: #fde8e7; color: #b42318; }
+.ix-item--high { border-left-color: #dc6803; } .ix-item--high .ix-sev { background: #fef0e1; color: #b54708; }
+.ix-item--mod { border-left-color: #d4a106; } .ix-item--mod .ix-sev { background: #fdf6d8; color: #8a6a00; }
+.ix-item--time { border-left-color: #2e7d9a; } .ix-item--time .ix-sev { background: #e2f1f6; color: #1f5d73; }
+.ix-do { font-size: .93rem; }
+.ix-none { background: var(--surface-2); border-radius: var(--radius); padding: 14px 18px; }
+.ix-none p { margin: 6px 0 0; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ix-sev { filter: brightness(.9); } }
+@media (max-width: 520px) { .ix-form { flex-direction: column; } }
