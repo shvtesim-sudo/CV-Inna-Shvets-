@@ -312,6 +312,7 @@
           ${teamReady() ? '<a class="quick-link" href="#/team"><span aria-hidden="true">👥</span><b>К кому обращаться</b><small>Кто в Вивафарм отвечает за ваш вопрос</small></a>' : ''}
           <a class="quick-link" href="#/profile"><span aria-hidden="true">🎓</span><b>Мои сертификаты</b><small>Прогресс и документы в личном кабинете</small></a>
         </div>
+        ${mode === 'server' && user ? '<section class="section" id="top10" aria-live="polite"></section>' : ''}
         <section class="section">
           <div class="section__head">
             <div><h2>${inProgress.length ? 'Продолжить обучение' : 'Популярные курсы'}</h2></div>
@@ -330,6 +331,33 @@
         </section>
         ${pillarsHtml()}
       </div>`;
+  }
+
+  /* ───────────── Топ-10 по результатам тестов ───────────── */
+  function topHtml(r, compact) {
+    if (!r.top.length) return compact ? '<p class="muted small">Рейтинг появится, когда сотрудники сдадут первые тесты.</p>' : '';
+    const medal = ['🥇', '🥈', '🥉'];
+    const mine = r.me && !r.top.some((x) => x.isMe)
+      ? `<p class="top-me">Ваше место: <b>${r.me.place}</b> из ${r.total} · ${r.me.points} ${plural(r.me.points, 'балл', 'балла', 'баллов')}</p>` : '';
+    return `
+      ${compact ? '<h3>Топ-10 фармацевтов</h3><p class="muted small">Сумма результатов сданных тестов; при равенстве — меньше попыток</p>' : `<div class="section__head"><div><h2>Топ-10 фармацевтов</h2>
+        <p>За каждый сданный тест — его результат в процентах, баллы суммируются. При равенстве выше тот, кто сдал с меньшего числа попыток</p></div></div>`}
+      <ol class="top-list${compact ? ' top-list--compact' : ''}">${r.top.map((x, i) => `
+        <li class="${x.isMe ? 'is-me' : ''}">
+          <span class="top-place" aria-label="${x.place} место">${medal[x.place - 1] || x.place}</span>
+          <span class="grow"><b>${esc(x.name)}</b>${x.isMe ? ' <span class="badge badge--done">это вы</span>' : ''}<small>${esc(x.branch || '')}${x.branch ? ' · ' : ''}${x.passed} ${plural(x.passed, 'тест', 'теста', 'тестов')} · средний результат ${x.avg}% · попыток: ${x.attempts}</small></span>
+          <span class="top-points"><b>${x.points}</b><small>${plural(x.points, 'балл', 'балла', 'баллов')}</small></span>
+        </li>`).join('')}
+      </ol>${mine}`;
+  }
+
+  async function loadTop(id, compact) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    try {
+      const r = await call('top');
+      if (document.getElementById(id) === box) box.innerHTML = topHtml(r, compact);
+    } catch (e) { box.innerHTML = ''; }
   }
 
   /* ───────────── Четыре опоры фармацевта ───────────── */
@@ -919,7 +947,13 @@
       const r = await call('admin_users');
       admin.users = r.users;
       admin.inviteCode = r.inviteCode;
+      admin.top = null;
       renderAdmin();
+      call('top').then((t) => {
+        admin.top = t;
+        const box = document.getElementById('admin-top');
+        if (box) box.innerHTML = topHtml(t, true);
+      }).catch(() => {});
     } catch (e) {
       const body = document.getElementById('admin-body');
       if (body) body.innerHTML = formError(e.message);
@@ -993,6 +1027,7 @@
           </div>
         </div>
         <div class="admin-side">
+          <div class="panel" id="admin-top">${admin.top ? topHtml(admin.top, true) : '<p class="muted small">Загружаем рейтинг…</p>'}</div>
           <div class="panel">
             <h3>Прогресс по аптекам</h3>
             ${byBranch.length ? `<ul class="branch-list">${byBranch.map((x) => `
@@ -1311,7 +1346,7 @@
     if (page !== 'quiz') quiz = null;
     stopPillars();
     app.innerHTML = html;
-    if (!page) startPillars();
+    if (!page) { startPillars(); loadTop('top10', false); }
     if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
     if (page === 'admin' && canViewAdmin()) loadAdmin();
