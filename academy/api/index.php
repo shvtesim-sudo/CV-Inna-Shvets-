@@ -21,7 +21,22 @@ if ($action === 'cert') {
     $r = q('SELECT u.name, r.course_id, r.passed_at, r.best FROM quiz_results r
             JOIN users u ON u.id = r.user_id WHERE r.cert_id = ?', [$id])->fetch();
     if (!$r) {
-        fail(404, 'not_found', 'Сертификат не найден.');
+        // Сертификат по тесту с прежнего сайта тестирования
+        try {
+            $e = q('SELECT u.name, e.test, e.taken_at, e.score FROM external_results e
+                    JOIN users u ON u.id = e.user_id WHERE e.cert_no = ? AND e.cert_no <> \'\' AND e.passed = 1', [$id])->fetch();
+        } catch (Throwable $ex) {
+            $e = false;
+        }
+        if (!$e) {
+            fail(404, 'not_found', 'Сертификат не найден.');
+        }
+        json_out([
+            'name' => $e['name'],
+            'course' => $e['test'],
+            'passedAt' => $e['taken_at'] ? strtotime($e['taken_at'] . ' UTC') * 1000 : null,
+            'score' => (float)$e['score'] / 100,
+        ]);
     }
     $c = courses()[$r['course_id']] ?? ['title' => $r['course_id']];
     json_out([
@@ -49,7 +64,7 @@ if ($action === 'me') {
         // Сводные цифры для главной — только вошедшим сотрудникам, без персональных данных
         'stats' => $u ? [
             'staff' => (int)q("SELECT COUNT(*) FROM users WHERE role = 'user' AND active = 1")->fetchColumn(),
-            'certs' => (int)q('SELECT COUNT(*) FROM quiz_results WHERE passed_at IS NOT NULL')->fetchColumn(),
+            'certs' => (int)q('SELECT COUNT(*) FROM quiz_results WHERE passed_at IS NOT NULL')->fetchColumn() + external_passed_total(),
         ] : null,
         'version' => is_file(__DIR__ . '/version.txt') ? trim((string)file_get_contents(__DIR__ . '/version.txt')) : '',
     ]);
@@ -394,6 +409,7 @@ switch ($action) {
         foreach (q('SELECT * FROM users WHERE role = ? ORDER BY branch, name', ['user']) as $u) {
             $sum = 0;
             $certs = 0;
+            $ext = min($extPassed[$u['id']] ?? 0, LEGACY_TESTS);
             $cells = [];
             foreach ($list as $cid => $c) {
                 $res = $quiz[$u['id']][$cid] ?? null;
@@ -409,7 +425,7 @@ switch ($action) {
             };
             fputcsv($out, array_merge(array_map($safe, [
                 $u['name'], $u['login'], $u['branch'], $u['position'], $u['last_login'] ?? '',
-            ]), [round($sum / max(1, count($list))), $certs, $extPassed[$u['id']] ?? 0], $cells), ';');
+            ]), [min(100, round(($sum + $ext * 100) / max(1, count($list) + LEGACY_TESTS))), $certs + $ext, $ext], $cells), ';');
         }
         exit;
 

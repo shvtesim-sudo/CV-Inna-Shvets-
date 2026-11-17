@@ -143,6 +143,18 @@ function migrate(): void
     }
 }
 
+// Сколько тестов было на прежнем сайте тестирования (каждый сданный засчитывается как курс)
+const LEGACY_TESTS = 11;
+
+function external_passed_total(): int
+{
+    try {
+        return (int)q('SELECT COUNT(*) FROM external_results WHERE passed = 1')->fetchColumn();
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
 function external_results(int $uid): array
 {
     $out = [];
