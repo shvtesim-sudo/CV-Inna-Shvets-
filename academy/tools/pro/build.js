@@ -54,4 +54,5 @@ for (const c of sb.window.COURSES) {
 }
 if (errors) process.exit(1);
 fs.writeFileSync(path.join(root, 'js/data-pro.js'), out);
-console.log('js/data-pro.js: ' + files.length + ' курсов — ' + files.map((f) => f.replace('.js', '')).join(', '));
+const ids = Object.keys(PRO).sort();
+console.log('js/data-pro.js: ' + ids.length + ' курсов — ' + ids.map((id) => id + ' (' + PRO[id].quiz.length + ' вопр.)').join(', '));
