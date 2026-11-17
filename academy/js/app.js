@@ -151,6 +151,9 @@
   const isPassed = (c) => isQuizPassed(c) || !!legacyRes(c);
   const pct = (x) => Math.round(x * 100);
   const isAdmin = () => mode === 'server' && user && user.role === 'admin';
+  // Руководитель видит кабинет руководителя и выгрузку, но ничего не меняет
+  const canViewAdmin = () => mode === 'server' && user && (user.role === 'admin' || user.role === 'manager');
+  const ROLE_LABEL = { admin: ' · администратор', manager: ' · руководитель (просмотр)' };
 
   function courseProgress(c) {
     if (!isQuizPassed(c) && legacyRes(c)) return 100;
@@ -898,14 +901,15 @@
       <div class="wrap">
         <div class="crumbs"><a href="#/">Главная</a> / Кабинет руководителя</div>
         <div class="section__head"><h1 style="margin:0">Кабинет руководителя</h1>
-          <div class="btn-row">
+          <div class="btn-row">${isAdmin() ? `
             <button class="btn btn--primary btn--sm" data-admin="new">+ Сотрудник</button>
             <button class="btn btn--ghost btn--sm" data-admin="import">Импорт списка</button>
             <button class="btn btn--ghost btn--sm" data-admin="sheets">Логины по аптекам</button>
-            <button class="btn btn--ghost btn--sm" data-admin="results">Импорт результатов</button>
+            <button class="btn btn--ghost btn--sm" data-admin="results">Импорт результатов</button>` : ''}
             <a class="btn btn--ghost btn--sm" href="${API}?action=admin_export">Выгрузить в Excel</a>
           </div>
         </div>
+        ${isAdmin() ? '' : '<p class="muted small">Режим просмотра: вы видите результаты всех сотрудников и можете выгрузить их в Excel. Изменения вносит администратор.</p>'}
         <div id="admin-body"><p class="muted">Загружаем данные…</p></div>
       </div>`;
   }
@@ -951,12 +955,12 @@
 
     const rows = list.map((u) => `
       <tr class="${u.active ? '' : 'is-blocked'}">
-        <td><button class="link-btn" data-user-open="${u.id}" aria-expanded="${admin.open === u.id}"><b>${esc(u.name)}</b></button><small>${esc(u.login)}${u.role === 'admin' ? ' · администратор' : ''}${u.active ? '' : ' · заблокирован'}</small></td>
+        <td><button class="link-btn" data-user-open="${u.id}" aria-expanded="${admin.open === u.id}"><b>${esc(u.name)}</b></button><small>${esc(u.login)}${ROLE_LABEL[u.role] || ''}${u.active ? '' : ' · заблокирован'}</small></td>
         <td>${esc(u.branch) || '—'}<small>${esc(u.position)}</small></td>
         <td class="t-progress"><span>${u.progress}%</span>${progressBar(u.progress)}</td>
         <td class="t-num">${u.certs} / ${COURSES.length}${u.ext ? `<small>в т. ч. до запуска Академии: ${u.ext}</small>` : ''}</td>
         <td class="t-num">${formatDateTime(u.lastLogin)}</td>
-        <td class="t-actions"><button class="btn btn--ghost btn--sm" data-user-edit="${u.id}">Изменить</button></td>
+        <td class="t-actions">${isAdmin() ? `<button class="btn btn--ghost btn--sm" data-user-edit="${u.id}">Изменить</button>` : ''}</td>
       </tr>
       ${admin.open === u.id ? `<tr class="detail-row"><td colspan="6">${userDetail(u)}</td></tr>` : ''}`).join('');
 
@@ -995,7 +999,7 @@
               <li><button class="link-btn" data-branch="${esc(x.b)}">${esc(x.b)}</button><small>${x.n} ${plural(x.n, 'сотрудник', 'сотрудника', 'сотрудников')} · ${x.avg}%</small>${progressBar(x.avg)}</li>`).join('')}</ul>`
               : '<p class="muted small">Укажите сотрудникам аптеку — здесь появится сводка.</p>'}
           </div>
-          <div class="panel">
+          ${isAdmin() ? `<div class="panel">
             <h3>Самостоятельная регистрация</h3>
             <form id="invite-form">
               <div class="field"><label for="invite">Код приглашения</label><input id="invite" name="inviteCode" maxlength="60" value="${esc(admin.inviteCode)}" placeholder="Пусто — регистрация выключена"></div>
@@ -1003,7 +1007,7 @@
               <button class="btn btn--ghost btn--sm btn--block">Сохранить</button>
             </form>
             <p class="muted small">Сотрудник открывает «${esc(location.origin + location.pathname)}#/register» и вводит этот код.</p>
-          </div>
+          </div>` : ''}
         </div>
       </div>`;
   }
@@ -1042,7 +1046,11 @@
         <div class="field"><label for="u-password">${isNew ? 'Пароль (от 8 символов)' : 'Новый пароль (оставьте пустым, чтобы не менять)'}</label>
           <div class="input-with-btn"><input id="u-password" name="password" type="text" autocomplete="off" ${isNew ? 'required minlength="8"' : ''}><button type="button" class="btn btn--ghost btn--sm" data-genpass>Сгенерировать</button></div></div>
         <div class="field-row">
-          <label class="check"><input type="checkbox" name="admin" ${u.role === 'admin' ? 'checked' : ''}> Администратор</label>
+          <div class="field"><label for="u-role">Роль</label><select id="u-role" name="role">
+            <option value="user" ${u.role === 'user' ? 'selected' : ''}>Сотрудник</option>
+            <option value="manager" ${u.role === 'manager' ? 'selected' : ''}>Руководитель — только просмотр результатов</option>
+            <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Администратор — полный доступ</option>
+          </select></div>
           <label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Доступ разрешён</label>
         </div>
         <div class="form-msg"></div>
@@ -1291,7 +1299,7 @@
     else if (page === 'law') { html = viewLaw({ buh: 'acc', pharm: 'pharm', local: 'local' }[id] || null); }
     else if (page === 'team' && teamReady()) html = viewTeam();
     else if (page === 'profile') html = viewProfile();
-    else if (page === 'admin' && isAdmin()) html = viewAdmin();
+    else if (page === 'admin' && canViewAdmin()) html = viewAdmin();
     else if (page === 'verify' && id) html = viewVerify(decodeURIComponent(id));
     else if (page === 'xcert' && id) { html = viewExtCertificate(decodeURIComponent(id)); nav = 'profile'; }
     else if (c && page === 'course') { html = viewCourse(c); nav = 'courses'; }
@@ -1306,7 +1314,7 @@
     if (!page) startPillars();
     if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
-    if (page === 'admin' && isAdmin()) loadAdmin();
+    if (page === 'admin' && canViewAdmin()) loadAdmin();
     if (page === 'verify' && id) loadVerify(decodeURIComponent(id));
 
     updateNav(nav);
@@ -1320,7 +1328,7 @@
     const loggedOut = mode === 'server' && !user;
     document.querySelectorAll('[data-nav]').forEach((a) => {
       a.classList.toggle('active', a.dataset.nav === active);
-      a.hidden = loggedOut || (a.dataset.nav === 'admin' && !isAdmin());
+      a.hidden = loggedOut || (a.dataset.nav === 'admin' && !canViewAdmin());
     });
     document.querySelector('.nav-logout').hidden = !(mode === 'server' && user);
     document.getElementById('nav').classList.remove('open');
@@ -1510,7 +1518,7 @@
         await call('admin_user_save', {
           id: Number(f.namedItem('id').value), name: f.name.value, login: f.login.value, branch: f.branch.value,
           position: f.position.value, password: f.password.value,
-          role: f.admin.checked ? 'admin' : 'user', active: f.active.checked
+          role: f.role.value, active: f.active.checked
         });
         modal.close();
         toast('Сохранено');
