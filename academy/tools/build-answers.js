@@ -7,6 +7,7 @@ const vm = require('vm');
 const root = path.join(__dirname, '..');
 const sandbox = { window: {} };
 vm.runInNewContext(fs.readFileSync(path.join(root, 'js/data.js'), 'utf8'), sandbox);
+vm.runInNewContext(fs.readFileSync(path.join(root, 'js/data-pro.js'), 'utf8'), sandbox);
 vm.runInNewContext(fs.readFileSync(path.join(root, 'js/data-viva.js'), 'utf8'), sandbox);
 
 const lines = sandbox.window.COURSES.map((c) => {

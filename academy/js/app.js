@@ -447,6 +447,17 @@
       </div>`;
   }
 
+  // Таблицы в уроках: подписи столбцов в каждой ячейке — на телефоне строка показывается карточкой
+  function labelLessonTables() {
+    app.querySelectorAll('.lesson table').forEach((t) => {
+      const rows = Array.from(t.rows);
+      if (!rows.length || !rows[0].querySelector('th')) return;
+      const heads = Array.from(rows[0].cells).map((c) => c.textContent.trim());
+      t.classList.add('stack');
+      rows.slice(1).forEach((r) => Array.from(r.cells).forEach((c, i) => { if (heads[i]) c.setAttribute('data-label', heads[i]); }));
+    });
+  }
+
   /* ───────────── Топ-10 по результатам тестов ───────────── */
   function topHtml(r, compact) {
     if (!r.top.length) return compact ? '<p class="muted small">Рейтинг появится, когда сотрудники сдадут первые тесты.</p>' : '';
@@ -1784,6 +1795,7 @@
     if (!page) { startPillars(); if (mode === 'server' && user) loadTodayExtras(); }
     if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
+    if (page === 'lesson') labelLessonTables();
     if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
     if (page === 'events' && mode === 'server') { if (evs.data) renderEvents(); loadEvents(); }
     if (page === 'profile' && mode === 'server') renderTgPanel();
