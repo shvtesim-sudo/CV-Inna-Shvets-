@@ -395,8 +395,8 @@ switch ($action) {
         fwrite($out, "\xEF\xBB\xBF"); // BOM, чтобы Excel открыл кириллицу
         $extPassed = [];
         try {
-            foreach (q('SELECT user_id, COUNT(*) AS n FROM external_results WHERE passed = 1 GROUP BY user_id')->fetchAll() as $r) {
-                $extPassed[$r['user_id']] = (int)$r['n'];
+            foreach (q('SELECT user_id, test FROM external_results WHERE passed = 1')->fetchAll() as $r) {
+                $extPassed[$r['user_id']][$r['test']] = true;
             }
         } catch (Throwable $e) {
             // таблицы нет — колонка останется пустой
@@ -409,11 +409,18 @@ switch ($action) {
         foreach (q('SELECT * FROM users WHERE role = ? ORDER BY branch, name', ['user']) as $u) {
             $sum = 0;
             $certs = 0;
-            $ext = min($extPassed[$u['id']] ?? 0, LEGACY_TESTS);
+            $old = $extPassed[$u['id']] ?? [];
             $cells = [];
             foreach ($list as $cid => $c) {
                 $res = $quiz[$u['id']][$cid] ?? null;
                 $passed = $res && $res['passed_at'];
+                // Тест этого курса сдан на прежнем сайте до запуска Академии
+                if (!$passed && !empty($c['legacy']) && isset($old[$c['legacy']])) {
+                    $sum += 100;
+                    $certs++;
+                    $cells[] = 'сдан до запуска Академии';
+                    continue;
+                }
                 $pct = (int)round((($lessons[$u['id']][$cid] ?? 0) + ($passed ? 1 : 0)) / ($c['lessons'] + 1) * 100);
                 $sum += $pct;
                 $certs += $passed ? 1 : 0;
@@ -425,7 +432,7 @@ switch ($action) {
             };
             fputcsv($out, array_merge(array_map($safe, [
                 $u['name'], $u['login'], $u['branch'], $u['position'], $u['last_login'] ?? '',
-            ]), [min(100, round(($sum + $ext * 100) / max(1, count($list) + LEGACY_TESTS))), $certs + $ext, $ext], $cells), ';');
+            ]), [round($sum / max(1, count($list))), $certs, count($old)], $cells), ';');
         }
         exit;
 

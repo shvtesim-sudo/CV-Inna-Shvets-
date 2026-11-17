@@ -143,9 +143,6 @@ function migrate(): void
     }
 }
 
-// Сколько тестов было на прежнем сайте тестирования (каждый сданный засчитывается как курс)
-const LEGACY_TESTS = 11;
-
 function external_passed_total(): int
 {
     try {

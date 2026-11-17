@@ -144,11 +144,16 @@
   const doneLessons = (c) => state.lessons[c.id] || [];
   const isLessonDone = (c, i) => doneLessons(c).includes(i);
   const quizResult = (c) => state.quiz[c.id];
-  const isPassed = (c) => !!(quizResult(c) && quizResult(c).passedAt);
+  // Курс, тест которого сотрудник сдал на прежнем сайте до запуска Академии, считается пройденным
+  const legacyResult = (c, list) => c.legacy ? (list || []).find((r) => r.test === c.legacy && r.passed) : null;
+  const legacyRes = (c) => legacyResult(c, state.external);
+  const isQuizPassed = (c) => !!(quizResult(c) && quizResult(c).passedAt);
+  const isPassed = (c) => isQuizPassed(c) || !!legacyRes(c);
   const pct = (x) => Math.round(x * 100);
   const isAdmin = () => mode === 'server' && user && user.role === 'admin';
 
   function courseProgress(c) {
+    if (!isQuizPassed(c) && legacyRes(c)) return 100;
     const done = doneLessons(c).length + (isPassed(c) ? 1 : 0);
     return Math.round((done / (c.lessons.length + 1)) * 100);
   }
@@ -512,7 +517,7 @@
       <div class="wrap">
         <div class="crumbs"><a href="#/">Главная</a> / Курсы</div>
         <h1>Каталог курсов</h1>
-        <p class="muted">Каждый курс — 3 урока и итоговый тест. Сертификат выдаётся при результате от ${pct(passScore)}%.</p>
+        <p class="muted">Каждый курс — уроки или конспект и итоговый тест. Сертификат выдаётся при результате от ${pct(passScore)}%.</p>
         <input class="search" type="search" placeholder="Поиск: антибиотики, SPF, варфарин…" value="${esc(filter.q)}" aria-label="Поиск курсов">
         <div class="filters" role="group" aria-label="Направления">${chips}</div>
         <div class="grid" id="course-grid" style="margin-bottom:48px"></div>
@@ -557,6 +562,7 @@
             <b>Ваш прогресс: ${p}%</b>
             <div style="margin-top:10px">${progressBar(p)}</div>
             ${res ? `<p class="muted" style="margin:12px 0 0">Лучший результат теста: ${pct(res.best)}%</p>` : ''}
+            ${legacyRes(c) ? `<p class="muted" style="margin:12px 0 0">Тест сдан до запуска Академии: ${Math.round(legacyRes(c).score)}%${legacyRes(c).date ? `, ${formatDate(legacyRes(c).date)}` : ''}</p>` : ''}
             <a class="btn btn--primary" href="${next.href}">${next.label}</a>
           </aside>
         </div>
@@ -682,19 +688,11 @@
   }
 
   /* ───────────── Личный кабинет ───────────── */
-  // Прежние тесты: сколько разных сдано (в прогрессе каждый весит как один курс)
-  const LEGACY_COUNT = (window.LEGACY_TESTS || []).length;
-  function legacyPassed(list) {
-    const n = new Set((list || []).filter((r) => r.passed).map((r) => r.test)).size;
-    return Math.min(n, LEGACY_COUNT || n);
-  }
-  function units() { return COURSES.length + LEGACY_COUNT; }
-
   function viewProfile() {
-    const total = units();
+    const total = COURSES.length;
     const passed = COURSES.filter(isPassed);
-    const extDone = legacyPassed(state.external);
-    const overall = Math.min(100, Math.round((COURSES.reduce((s, c) => s + courseProgress(c), 0) + extDone * 100) / total));
+    const extDone = COURSES.filter((c) => !isQuizPassed(c) && legacyRes(c)).length;
+    const overall = Math.round(COURSES.reduce((s, c) => s + courseProgress(c), 0) / total);
     const r = 60, circ = 2 * Math.PI * r;
     const rows = COURSES.map((c) => {
       const next = nextStepFor(c);
@@ -733,8 +731,8 @@
                 stroke-dasharray="${circ}" stroke-dashoffset="${circ * (1 - overall / 100)}" transform="rotate(-90 70 70)"/>
               <text x="70" y="78" text-anchor="middle" font-size="26" font-weight="700" fill="var(--text)" font-family="Onest, sans-serif">${overall}%</text>
             </svg>
-            <p style="text-align:center" class="muted">Сертификатов: <b>${passed.length + extDone}</b> из ${total}</p>
-            <p style="text-align:center" class="muted small">Курсы Академии: ${passed.length} из ${COURSES.length}${LEGACY_COUNT ? ` · прежние тесты: ${extDone} из ${LEGACY_COUNT}` : ''}</p>
+            <p style="text-align:center" class="muted">Сертификатов: <b>${passed.length}</b> из ${total}</p>
+            ${extDone ? `<p style="text-align:center" class="muted small">из них ${extDone} — по тестам, сданным до запуска Академии</p>` : ''}
             <form id="name-form">
               <div class="field">
                 <label for="name">Имя и фамилия для сертификата</label>
@@ -774,6 +772,7 @@
 
   function viewCertificate(c) {
     const res = quizResult(c);
+    if (!isQuizPassed(c) && legacyRes(c)) return viewExtCertificate(c.legacy);
     if (!isPassed(c)) {
       return `
         <div class="wrap narrow">
@@ -881,14 +880,17 @@
   let admin = { users: [], inviteCode: '', q: '', branch: '', status: 'all', open: null };
 
   function userStats(u) {
-    let sum = 0, certs = 0;
+    let sum = 0, certs = 0, ext = 0;
     COURSES.forEach((c) => {
-      const done = (u.lessons[c.id] || 0) + (u.quiz[c.id] && u.quiz[c.id].passed ? 1 : 0);
-      sum += done / (c.lessons.length + 1);
-      if (u.quiz[c.id] && u.quiz[c.id].passed) certs++;
+      const quizOk = !!(u.quiz[c.id] && u.quiz[c.id].passed);
+      if (!quizOk && legacyResult(c, u.external)) {
+        sum += 1; certs++; ext++;
+        return;
+      }
+      sum += ((u.lessons[c.id] || 0) + (quizOk ? 1 : 0)) / (c.lessons.length + 1);
+      if (quizOk) certs++;
     });
-    const ext = legacyPassed(u.external);
-    return { progress: Math.min(100, Math.round(((sum + ext) / units()) * 100)), certs: certs + ext, ext };
+    return { progress: Math.round((sum / COURSES.length) * 100), certs, ext };
   }
 
   function viewAdmin() {
@@ -952,7 +954,7 @@
         <td><button class="link-btn" data-user-open="${u.id}" aria-expanded="${admin.open === u.id}"><b>${esc(u.name)}</b></button><small>${esc(u.login)}${u.role === 'admin' ? ' · администратор' : ''}${u.active ? '' : ' · заблокирован'}</small></td>
         <td>${esc(u.branch) || '—'}<small>${esc(u.position)}</small></td>
         <td class="t-progress"><span>${u.progress}%</span>${progressBar(u.progress)}</td>
-        <td class="t-num">${u.certs} / ${units()}${u.ext ? `<small>в т. ч. прежних тестов: ${u.ext}</small>` : ''}</td>
+        <td class="t-num">${u.certs} / ${COURSES.length}${u.ext ? `<small>в т. ч. до запуска Академии: ${u.ext}</small>` : ''}</td>
         <td class="t-num">${formatDateTime(u.lastLogin)}</td>
         <td class="t-actions"><button class="btn btn--ghost btn--sm" data-user-edit="${u.id}">Изменить</button></td>
       </tr>
@@ -1010,7 +1012,9 @@
     return `<ul class="detail-list">${COURSES.map((c) => {
       const lessons = u.lessons[c.id] || 0;
       const qr = u.quiz[c.id];
-      const status = qr && qr.passed
+      const old = !(qr && qr.passed) && legacyResult(c, u.external);
+      const status = old ? `<span class="badge badge--done">сдан до запуска · ${Math.round(old.score)}%</span>`
+        : qr && qr.passed
         ? `<span class="badge badge--done">сдан · ${pct(qr.best)}%</span>`
         : qr ? `<span class="badge badge--warn">не сдан · ${pct(qr.best)}% · попыток: ${qr.attempts}</span>`
         : `<span class="badge">уроков ${lessons} из ${c.lessons.length}</span>`;
