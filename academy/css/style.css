@@ -1154,3 +1154,8 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 .ix-none p { margin: 6px 0 0; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ix-sev { filter: brightness(.9); } }
 @media (max-width: 520px) { .ix-form { flex-direction: column; } }
+.ix-form-sel { order: 4; flex-basis: 100%; margin-top: 4px; font: inherit; font-size: .8rem; font-weight: 500; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); max-width: 100%; }
+.ix-local { order: 5; color: var(--brand) !important; }
+.ix-item--low { border-left-color: #6b9a6b; } .ix-item--low .ix-sev { background: #e7f3e7; color: #2f6b2f; }
+.drug-forms { margin: 0 0 8px; }
+.drug-forms .chip small { opacity: .7; margin-left: 2px; }
