@@ -742,7 +742,7 @@
     // Каталог Вивафарм (снимок)
     const A = window.ASSORTMENT;
     const items = A ? A.rows.filter((r) => norm(r[0]).includes(q) || norm(r[3]).includes(q))
-      .map((r) => ({ n: r[0], u: A.base + r[1], c: A.cats[r[2]], m: r[3], f: r[4] || '', g: r[5] })) : [];
+      .map((r) => ({ n: r[0], u: A.base + r[1], c: A.cats[r[2]], m: r[3], f: r[4] || '', g: r[5], rx: r[6] })) : [];
     const formsHere = Array.from(new Set(items.map((it) => it.f).filter(Boolean)));
     if (drugs.form && !formsHere.includes(drugs.form)) drugs.form = '';
     const shown = drugs.form ? items.filter((it) => it.f === drugs.form) : items;
@@ -766,10 +766,10 @@
           ${formsHere.length > 1 ? `<div class="filters drug-forms">${[['', 'Все формы']].concat(formsHere.map((f) => [f, FN[f] || f]))
             .map(([f, l]) => `<button type="button" class="chip" data-drug-form="${f}" aria-pressed="${drugs.form === f}">${esc(l)} <small>${f ? items.filter((it) => it.f === f).length : items.length}</small></button>`).join('')}</div>` : ''}
           <ul class="drug-items">${shown.slice(0, 60).map((it) => `
-          <li><a href="${esc(it.u)}" target="_blank" rel="noopener">${esc(it.n)}</a><small>${it.f ? esc(FN[it.f] || '') + ' · ' : ''}${esc(it.c)}${it.m ? ' · МНН: ' + esc(it.m) + (it.g ? ' <span title="МНН определено по названию или бренду">(по названию)</span>' : '') : ''}</small></li>`).join('')}</ul>
+          <li><a href="${esc(it.u)}" target="_blank" rel="noopener">${esc(it.n)}</a>${it.rx ? ' <span class="rx-badge" title="На vivafarm.md отмечен как рецептурный (препараты особого учёта)">Рецепт</span>' : ''}<small>${it.f ? esc(FN[it.f] || '') + ' · ' : ''}${esc(it.c)}${it.m ? (/биоакт|добавк|,/i.test(it.m) || it.m.length > 60 ? ' · Состав: ' + esc(it.m.length > 140 ? it.m.slice(0, 140) + '…' : it.m) : ' · МНН: ' + esc(it.m)) + (it.g ? ' <span title="МНН определено по названию или бренду">(по названию)</span>' : '') : ''}</small></li>`).join('')}</ul>
           ${shown.length > 60 ? `<p class="muted small">Показаны первые 60 из ${shown.length}. Уточните запрос или выберите форму.</p>` : ''}`
           : '<p class="muted small">В каталоге не найдено. Проверьте написание или поищите по торговому названию.</p>'}
-        ${A ? `<p class="muted small">Снимок каталога vivafarm.md от ${esc(A.date)}. Это не остатки: наличие и цену уточняйте в программе аптеки.</p>` : ''}
+        ${A ? `<p class="muted small">Снимок каталога vivafarm.md от ${esc(A.date)}. МНН и форма выпуска — из карточек товаров на сайте. Отметка «Рецепт» стоит там у препаратов особого учёта; рецептурный статус остальных проверяйте по инструкции. Это не остатки: наличие и цену уточняйте в программе аптеки.</p>` : ''}
       </section>`;
   }
 
@@ -843,12 +843,28 @@
             add({ key: 'dup' + g + i + j, sev: dup.sev, names: [A.name, B.name], t: dup.t, d: dup.d, ref: dup.ref });
           }
         });
+        // Одно и то же действующее вещество в двух препаратах (по МНН из карточек каталога)
+        const same = ixSameMnn(A, B);
+        if (same && ixSystemic(A) && ixSystemic(B) && !found.some((f) => f.key.startsWith('dup') && f.names.includes(A.name) && f.names.includes(B.name))) {
+          add({ key: 'mnn' + i + j, sev: 'high', names: [A.name, B.name], t: `В обоих препаратах ${same} — двойная доза одного вещества, риск передозировки.`, d: 'Оставить один препарат; если оба назначены врачом — уточнить у врача.', ref: 'consult/4' });
+        }
         const sa = A.groups.includes('sorbent'), sb = B.groups.includes('sorbent');
         const other = sa ? B : A;
         if (sa !== sb && (!other.form || other.form === 'o')) add({ key: 'sorb' + i + j, sev: 'time', names: [A.name, B.name], t: 'Сорбент снижает всасывание других лекарств.', d: 'Интервал не менее 1,5–2 часов.', ref: 'interactions/4' });
       }
     }
     return found.sort((x, y) => SEV[x.sev].order - SEV[y.sev].order);
+  }
+
+  // Составные МНН: «Парацетамол + Кофеин», синонимы через «/» («Метамизол натрия/Анальгин»)
+  const MNN_SKIP = /аскорбин|витамин|ментол|глицер|натрия хлорид|вода|глюкоз|декстроз|сахар|экстракт|масло|кальци|магни|цинк/;
+  const mnnParts = (m) => (m && m.length <= 100 && !/биоакт|добавк/i.test(m) ? m.split(/\s*\+\s*/) : [])
+    .map((p) => p.split('/').map((x) => norm(x).replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim()).filter((x) => x.length > 3 && !MNN_SKIP.test(x)))
+    .filter((p) => p.length);
+  function ixSameMnn(A, B) {
+    const pa = mnnParts(A.mnn), pb = mnnParts(B.mnn);
+    for (const a of pa) for (const b of pb) if (a.some((x) => b.includes(x))) return a[0].charAt(0).toUpperCase() + a[0].slice(1);
+    return '';
   }
 
   function renderCheck() {
@@ -905,19 +921,20 @@
     // Торговое название из каталога → добавляем МНН для распознавания
     let text = name;
     let form = ixFormOf(name);
+    let mnn = '';
     const A = window.ASSORTMENT;
     if (A) {
       const nn = norm(name);
       const row = A.rows.find((r) => norm(r[0]) === nn) || A.rows.find((r) => norm(r[0]).startsWith(nn));
       if (row) {
-        if (row[3]) text += ' ' + row[3];
+        if (row[3]) { text += ' ' + row[3]; mnn = row[3]; }
         if (!form && row[4] && norm(row[0]) === nn) form = row[4];
       }
     }
     const groups = ixGroups(text);
     const t = ' ' + norm(text) + ' ';
     const low = !groups.length && (IX.low || []).some((stem) => t.includes(norm(stem)));
-    ix.items.push({ name, groups, low, form });
+    ix.items.push({ name, groups, low, form, mnn });
     renderCheck();
   }
 
