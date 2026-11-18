@@ -52,3 +52,5 @@ with open(out, 'w', encoding='utf-8') as f:
             ', cats: ' + json.dumps(cat_list, ensure_ascii=False) + ', rows: ' +
             json.dumps(rows, ensure_ascii=False, separators=(',', ':')) + '};\n')
 print(f'{len(items)} товаров → js/assortment.js', file=sys.stderr)
+# Достроить МНН и определить форму выпуска
+os.system('node ' + os.path.join(os.path.dirname(__file__), 'assortment-enrich.js'))

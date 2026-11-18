@@ -673,7 +673,7 @@
     { name: 'Видаль', note: 'инструкции и описания препаратов', url: (q) => 'https://www.vidal.ru/search?t=all&q=' + encodeURIComponent(q) },
     { name: 'РЛС', note: 'регистр лекарственных средств', url: (q) => 'https://www.rlsnet.ru/search_result.htm?word=' + encodeURIComponent(q) }
   ];
-  let drugs = { q: '', timer: null };
+  let drugs = { q: '', timer: null, form: '' };
   const norm = (t) => String(t || '').toLowerCase().replace(/ё/g, 'е');
 
   function drugTabs(tab) {
@@ -742,7 +742,11 @@
     // Каталог Вивафарм (снимок)
     const A = window.ASSORTMENT;
     const items = A ? A.rows.filter((r) => norm(r[0]).includes(q) || norm(r[3]).includes(q))
-      .map((r) => ({ n: r[0], u: A.base + r[1], c: A.cats[r[2]], m: r[3] })) : [];
+      .map((r) => ({ n: r[0], u: A.base + r[1], c: A.cats[r[2]], m: r[3], f: r[4] || '', g: r[5] })) : [];
+    const formsHere = Array.from(new Set(items.map((it) => it.f).filter(Boolean)));
+    if (drugs.form && !formsHere.includes(drugs.form)) drugs.form = '';
+    const shown = drugs.form ? items.filter((it) => it.f === drugs.form) : items;
+    const FN = (A && A.forms) || {};
     const src = DRUG_SOURCES.map((s) => `<a class="btn btn--ghost btn--sm" href="${esc(s.url(raw))}" target="_blank" rel="noopener">${esc(s.name)} ↗<small>${esc(s.note)}</small></a>`).join('');
     box.innerHTML = `
       <section class="drug-sec">
@@ -758,9 +762,12 @@
       </section>
       <section class="drug-sec">
         <h2>В каталоге Вивафарм <span class="muted">${A ? items.length : '…'}</span></h2>
-        ${!A ? '<p class="muted small">Загружаем каталог…</p>' : items.length ? `<ul class="drug-items">${items.slice(0, 60).map((it) => `
-          <li><a href="${esc(it.u)}" target="_blank" rel="noopener">${esc(it.n)}</a><small>${esc(it.c)}${it.m ? ' · МНН: ' + esc(it.m) : ''}</small></li>`).join('')}</ul>
-          ${items.length > 60 ? `<p class="muted small">Показаны первые 60 из ${items.length}. Уточните запрос.</p>` : ''}`
+        ${!A ? '<p class="muted small">Загружаем каталог…</p>' : items.length ? `
+          ${formsHere.length > 1 ? `<div class="filters drug-forms">${[['', 'Все формы']].concat(formsHere.map((f) => [f, FN[f] || f]))
+            .map(([f, l]) => `<button type="button" class="chip" data-drug-form="${f}" aria-pressed="${drugs.form === f}">${esc(l)} <small>${f ? items.filter((it) => it.f === f).length : items.length}</small></button>`).join('')}</div>` : ''}
+          <ul class="drug-items">${shown.slice(0, 60).map((it) => `
+          <li><a href="${esc(it.u)}" target="_blank" rel="noopener">${esc(it.n)}</a><small>${it.f ? esc(FN[it.f] || '') + ' · ' : ''}${esc(it.c)}${it.m ? ' · МНН: ' + esc(it.m) + (it.g ? ' <span title="МНН определено по названию или бренду">(по названию)</span>' : '') : ''}</small></li>`).join('')}</ul>
+          ${shown.length > 60 ? `<p class="muted small">Показаны первые 60 из ${shown.length}. Уточните запрос или выберите форму.</p>` : ''}`
           : '<p class="muted small">В каталоге не найдено. Проверьте написание или поищите по торговому названию.</p>'}
         ${A ? `<p class="muted small">Снимок каталога vivafarm.md от ${esc(A.date)}. Это не остатки: наличие и цену уточняйте в программе аптеки.</p>` : ''}
       </section>`;
@@ -772,8 +779,11 @@
     contra: { label: 'Противопоказано', cls: 'contra', order: 0 },
     high: { label: 'Опасно — нужен врач', cls: 'high', order: 1 },
     mod: { label: 'Значимо — осторожность и контроль', cls: 'mod', order: 2 },
-    time: { label: 'Разнести по времени', cls: 'time', order: 3 }
+    time: { label: 'Разнести по времени', cls: 'time', order: 3 },
+    low: { label: 'Низкий риск — местная форма', cls: 'low', order: 4 }
   };
+  const ixFormOf = (text) => { const n = norm(text); const f = (IX.formRe || []).find(([, re]) => re.test(n)); return f ? f[0] : ''; };
+  const ixSystemic = (it) => !it.form || (IX.systemic || 'oir').includes(it.form);
 
   function viewCheck() {
     return `
@@ -781,7 +791,7 @@
         <div class="crumbs"><a href="#/">Главная</a> / <a href="#/drugs">Справочник по МНН</a> / Взаимодействия</div>
         <h1>Проверка взаимодействий</h1>
         ${drugTabs('check')}
-        <p class="muted">Добавьте 2–5 препаратов, которые человек принимает или покупает: МНН или торговое название. Можно добавить алкоголь, грейпфрут, зверобой, молочные продукты.</p>
+        <p class="muted">Добавьте 2–5 препаратов, которые человек принимает или покупает: МНН или торговое название. Лучше выбрать точное название из подсказки — тогда учтётся форма выпуска (таблетки, гель, глазные капли…). Можно добавить алкоголь, грейпфрут, зверобой, молочные продукты.</p>
         <form id="ix-form" class="ix-form" autocomplete="off">
           <input class="search" id="ix-q" list="drug-list" placeholder="Например: варфарин, Нурофен, кларитромицин…" aria-label="Препарат">
           <button class="btn btn--primary">Добавить</button>
@@ -804,7 +814,7 @@
     const add = (f) => { const k = f.key; if (!seen.has(k)) { seen.add(k); found.push(f); } };
     const triples = [];
     IX.triples.forEach((tr, ti) => {
-      const who = tr.g.map((g) => items.findIndex((it) => it.groups.includes(g)));
+      const who = tr.g.map((g) => items.findIndex((it) => it.groups.includes(g) && ixSystemic(it)));
       if (who.every((i) => i >= 0) && new Set(who).size >= 2) {
         triples.push(tr);
         add({ key: 'tr' + ti, sev: tr.sev, names: Array.from(new Set(who)).map((i) => items[i].name), t: tr.t, d: tr.d, ref: tr.ref });
@@ -819,16 +829,23 @@
                    || (ra.some((g) => B.groups.includes(g)) && rb.some((g) => A.groups.includes(g)));
           if (!hit) return;
           if (triples.length && r.a === 'raas' && r.b === 'nsaid') return; // уже учтено в «тройном ударе»
-          add({ key: ri + ':' + i + ':' + j, sev: r.sev, names: [A.name, B.name], t: r.t, d: r.d, ref: r.ref });
+          // Форма выпуска: правило по умолчанию касается системных форм; «разнести по времени» — только приёма внутрь
+          const ok = (it) => (r.sev === 'time' ? (!it.form || it.form === 'o') : (r.forms ? (!it.form || r.forms.includes(it.form)) : ixSystemic(it)));
+          if (ok(A) && ok(B)) {
+            add({ key: ri + ':' + i + ':' + j, sev: r.sev, names: [A.name, B.name], t: r.t, d: r.d, ref: r.ref });
+          } else if (r.localNote) {
+            add({ key: ri + ':' + i + ':' + j, sev: 'low', names: [A.name, B.name], t: r.localNote, d: r.d, ref: r.ref });
+          }
         });
         Object.keys(IX.duplicates).forEach((g) => {
-          if (A.groups.includes(g) && B.groups.includes(g)) {
+          if (A.groups.includes(g) && B.groups.includes(g) && ixSystemic(A) && ixSystemic(B)) {
             const dup = IX.duplicates[g];
             add({ key: 'dup' + g + i + j, sev: dup.sev, names: [A.name, B.name], t: dup.t, d: dup.d, ref: dup.ref });
           }
         });
         const sa = A.groups.includes('sorbent'), sb = B.groups.includes('sorbent');
-        if (sa !== sb) add({ key: 'sorb' + i + j, sev: 'time', names: [A.name, B.name], t: 'Сорбент снижает всасывание других лекарств.', d: 'Интервал не менее 1,5–2 часов.', ref: 'interactions/4' });
+        const other = sa ? B : A;
+        if (sa !== sb && (!other.form || other.form === 'o')) add({ key: 'sorb' + i + j, sev: 'time', names: [A.name, B.name], t: 'Сорбент снижает всасывание других лекарств.', d: 'Интервал не менее 1,5–2 часов.', ref: 'interactions/4' });
       }
     }
     return found.sort((x, y) => SEV[x.sev].order - SEV[y.sev].order);
@@ -840,6 +857,8 @@
     const items = ix.items;
     const chips = items.map((it, k) => `<span class="ix-chip ${it.groups.length || it.low ? '' : 'ix-chip--unknown'}">${esc(it.name)}
       <small>${it.groups.length ? esc(it.groups.map((g) => IX.groups[g].name).join(', ')) : it.low ? 'значимых взаимодействий обычно нет' : 'нет в базе — проверьте инструкцию'}</small>
+      <select class="ix-form-sel" data-ix-form="${k}" aria-label="Форма выпуска ${esc(it.name)}">${Object.entries(IX.formNames).map(([c, l]) => `<option value="${c}" ${it.form === c ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+      ${it.groups.length && !ixSystemic(it) ? '<small class="ix-local">Местная форма: системные взаимодействия маловероятны</small>' : ''}
       <button type="button" class="link-btn" data-ix-del="${k}" aria-label="Убрать ${esc(it.name)}">×</button></span>`).join('');
     let res = '';
     if (items.length < 2) {
@@ -873,8 +892,10 @@
     await loadAssortment();
     const dl = document.getElementById('drug-list');
     if (dl && window.ASSORTMENT) {
+      // МНН и точные названия из каталога (по названию определяется форма выпуска)
       const mnn = Array.from(new Set(window.ASSORTMENT.rows.map((r) => r[3]).filter((m) => m && m.length < 60))).sort((a, b) => a.localeCompare(b, 'ru'));
-      dl.innerHTML = mnn.map((m) => `<option value="${esc(m)}">`).join('');
+      const names = window.ASSORTMENT.rows.filter((r) => r[3] || r[4]).map((r) => r[0]);
+      dl.innerHTML = mnn.concat(names).map((m) => `<option value="${esc(m)}">`).join('');
     }
   }
 
@@ -883,15 +904,20 @@
     if (!name || ix.items.length >= 8 || ix.items.some((it) => norm(it.name) === norm(name))) return;
     // Торговое название из каталога → добавляем МНН для распознавания
     let text = name;
+    let form = ixFormOf(name);
     const A = window.ASSORTMENT;
     if (A) {
-      const row = A.rows.find((r) => norm(r[0]).startsWith(norm(name)));
-      if (row && row[3]) text += ' ' + row[3];
+      const nn = norm(name);
+      const row = A.rows.find((r) => norm(r[0]) === nn) || A.rows.find((r) => norm(r[0]).startsWith(nn));
+      if (row) {
+        if (row[3]) text += ' ' + row[3];
+        if (!form && row[4] && norm(row[0]) === nn) form = row[4];
+      }
     }
     const groups = ixGroups(text);
     const t = ' ' + norm(text) + ' ';
     const low = !groups.length && (IX.low || []).some((stem) => t.includes(norm(stem)));
-    ix.items.push({ name, groups, low });
+    ix.items.push({ name, groups, low, form });
     renderCheck();
   }
 
@@ -2088,6 +2114,7 @@
       app.innerHTML = viewTeam();
       return;
     }
+    if (t.dataset.drugForm !== undefined) { drugs.form = t.dataset.drugForm; renderDrugs(); return; }
     if (t.dataset.ixAdd) { ixAdd(t.dataset.ixAdd); return; }
     if (t.dataset.ixDel !== undefined) { ix.items.splice(Number(t.dataset.ixDel), 1); renderCheck(); return; }
     if (t.hasAttribute('data-ix-clear')) { ix.items = []; renderCheck(); return; }
@@ -2239,6 +2266,11 @@
   });
 
   app.addEventListener('change', (e) => {
+    if (e.target.dataset && e.target.dataset.ixForm !== undefined) {
+      const it = ix.items[Number(e.target.dataset.ixForm)];
+      if (it) { it.form = e.target.value; renderCheck(); }
+      return;
+    }
     if (e.target.id === 'admin-branch') { admin.branch = e.target.value; renderAdmin(); }
     if (e.target.id === 'admin-status') { admin.status = e.target.value; renderAdmin(); }
   });
