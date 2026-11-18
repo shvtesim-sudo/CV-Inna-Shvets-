@@ -838,8 +838,8 @@
     const box = document.getElementById('ix-body');
     if (!box) return;
     const items = ix.items;
-    const chips = items.map((it, k) => `<span class="ix-chip ${it.groups.length ? '' : 'ix-chip--unknown'}">${esc(it.name)}
-      <small>${it.groups.length ? esc(it.groups.map((g) => IX.groups[g].name).join(', ')) : 'нет в базе правил'}</small>
+    const chips = items.map((it, k) => `<span class="ix-chip ${it.groups.length || it.low ? '' : 'ix-chip--unknown'}">${esc(it.name)}
+      <small>${it.groups.length ? esc(it.groups.map((g) => IX.groups[g].name).join(', ')) : it.low ? 'значимых взаимодействий обычно нет' : 'нет в базе — проверьте инструкцию'}</small>
       <button type="button" class="link-btn" data-ix-del="${k}" aria-label="Убрать ${esc(it.name)}">×</button></span>`).join('');
     let res = '';
     if (items.length < 2) {
@@ -854,8 +854,13 @@
           <p class="ix-do"><b>Что делать:</b> ${esc(x.d)}</p>
           ${x.ref ? `<a class="small" href="#/lesson/${x.ref}">Подробнее в уроке Академии →</a>` : ''}
         </li>`).join('')}</ul>`
-        : `<div class="ix-none"><b>В базе Академии значимых взаимодействий не найдено.</b>
-           <p class="muted small">База охватывает самые важные для первого стола сочетания, но не все. Проверьте раздел «Взаимодействие» в инструкции${items.length ? ' или справочник: ' + items.map((it) => `<a href="${esc(DRUG_SOURCES[0].url(it.name))}" target="_blank" rel="noopener">${esc(it.name)} в Видале ↗</a>`).join(', ') : ''}.</p></div>`;
+        : (() => {
+          const unknown = items.filter((it) => !it.groups.length && !it.low);
+          const list = (unknown.length ? unknown : items).map((it) => `<a href="${esc(DRUG_SOURCES[0].url(it.name))}" target="_blank" rel="noopener">${esc(it.name)} в Видале ↗</a>`).join(', ');
+          return `<div class="ix-none"><b>В базе Академии значимых взаимодействий между этими препаратами не найдено.</b>
+           <p class="muted small">${unknown.length ? `Не распознаны: ${unknown.map((it) => esc(it.name)).join(', ')} — для них проверьте раздел «Взаимодействие» в инструкции или справочник: ${list}.`
+             : `База охватывает важные для первого стола сочетания, но не все. При сомнении сверьтесь с инструкцией: ${list}.`}</p></div>`;
+        })();
     }
     box.innerHTML = `${items.length ? `<div class="ix-chips">${chips}</div>
       <button type="button" class="link-btn small" data-ix-clear>Очистить список</button>` : ''}
@@ -883,7 +888,10 @@
       const row = A.rows.find((r) => norm(r[0]).startsWith(norm(name)));
       if (row && row[3]) text += ' ' + row[3];
     }
-    ix.items.push({ name, groups: ixGroups(text) });
+    const groups = ixGroups(text);
+    const t = ' ' + norm(text) + ' ';
+    const low = !groups.length && (IX.low || []).some((stem) => t.includes(norm(stem)));
+    ix.items.push({ name, groups, low });
     renderCheck();
   }
 
