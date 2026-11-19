@@ -1164,3 +1164,6 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 .rx-badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 700; line-height: 18px; color: #b42318; background: #fee4e2; vertical-align: 1px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rx-badge { color: #fda29b; background: rgba(240, 68, 56, .18); } }
 :root[data-theme="dark"] .rx-badge { color: #fda29b; background: rgba(240, 68, 56, .18); }
+
+/* Презентация PowerPoint в материалах */
+.mat-cover--ppt .mat-cover__type { background: #c43e1c; color: #fff; }

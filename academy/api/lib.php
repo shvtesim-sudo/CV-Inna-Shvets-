@@ -484,9 +484,32 @@ function chunk_data($v): string
     return is_resource($v) ? (string)stream_get_contents($v) : (string)$v;
 }
 
+// Тип файла материала по расширению исходного имени: pdf, pptx (pptx/ppsx/potx) или ppt (ppt/pps)
+function material_type(string $name): string
+{
+    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+    if (in_array($ext, ['pptx', 'ppsx', 'potx'], true)) {
+        return 'pptx';
+    }
+    return in_array($ext, ['ppt', 'pps'], true) ? 'ppt' : 'pdf';
+}
+
+// Сигнатура начала файла: PDF, ZIP (pptx) или OLE (старый ppt)
+function material_magic(string $data): string
+{
+    if (substr($data, 0, 5) === '%PDF-') {
+        return 'pdf';
+    }
+    if (substr($data, 0, 4) === "PK\x03\x04") {
+        return 'pptx';
+    }
+    return substr($data, 0, 8) === "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" ? 'ppt' : '';
+}
+
 function material_row(array $r): array
 {
     return [
+        'type' => material_type((string)$r['original_name']),
         'id' => (int)$r['id'], 'title' => $r['title'], 'brand' => $r['brand'], 'category' => $r['category'],
         'description' => (string)$r['description'], 'course' => $r['course_id'], 'size' => (int)$r['size'],
         'added' => strtotime($r['created_at'] . ' UTC') * 1000,

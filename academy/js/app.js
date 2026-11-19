@@ -358,7 +358,7 @@
       if (!box || !fresh.length) return;
       box.hidden = false;
       box.innerHTML = `<h2>Новое в материалах</h2><div class="mat-mini">${fresh.map((m) => `
-        <a href="${matUrl(m)}" target="_blank" rel="noopener"><span class="pdf">PDF</span><span><b>${esc(m.title)}</b><small>${esc(m.brand || CATEGORIES[m.category] || '')} · ${formatDate(m.added)}</small></span></a>`).join('')}</div>
+        <a ${matOpen(m)}><span class="pdf">${matType(m)}</span><span><b>${esc(m.title)}</b><small>${esc(m.brand || CATEGORIES[m.category] || '')} · ${formatDate(m.added)}</small></span></a>`).join('')}</div>
         <div class="btn-row"><a class="btn btn--ghost btn--sm" href="#/materials">Все материалы</a></div>`;
     }).catch(() => {});
     renderInstallCard();
@@ -1100,6 +1100,10 @@
   /* ───────────── Учебные материалы (презентации PDF) ───────────── */
   let mats = { list: null, cat: 'all', q: '' };
   const matUrl = (m, dl) => `${API}?action=material_file&id=${m.id}${dl ? '&dl=1' : ''}`;
+  const isPpt = (m) => m.type === 'pptx' || m.type === 'ppt';
+  const matType = (m) => (isPpt(m) ? 'PPT' : 'PDF');
+  // PDF открывается в браузере, PowerPoint — скачивается и открывается в программе
+  const matOpen = (m) => (isPpt(m) ? `href="${matUrl(m, true)}"` : `href="${matUrl(m)}" target="_blank" rel="noopener"`);
   const fileSize = (b) => b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} МБ` : `${Math.max(1, Math.round(b / 1024))} КБ`;
 
   function viewMaterials() {
@@ -1107,7 +1111,7 @@
       <div class="wrap">
         <div class="crumbs"><a href="#/">Главная</a> / Учебные материалы</div>
         <div class="section__head"><div><h1 style="margin:0">Учебные материалы</h1>
-          <p>Презентации брендов и тренингов в исходном виде. Откройте для просмотра или скачайте в PDF.</p></div>
+          <p>Презентации брендов и тренингов в исходном виде. PDF открывается прямо на сайте, PowerPoint — скачивается и открывается в PowerPoint или Google Презентациях.</p></div>
           ${isAdmin() ? '<button class="btn btn--primary btn--sm" data-mat-new>+ Загрузить презентацию</button>' : ''}</div>
         <input class="search" id="mat-q" type="search" placeholder="Поиск: бренд, тема, продукт…" value="${esc(mats.q)}" aria-label="Поиск материалов">
         <div class="filters" id="mat-cats" role="group" aria-label="Направления"></div>
@@ -1150,16 +1154,17 @@
       const c = m.course && findCourse(m.course);
       return `
         <article class="mat-card">
-          <a class="mat-cover" href="${matUrl(m)}" target="_blank" rel="noopener" aria-label="Открыть «${esc(m.title)}»">
-            <span class="mat-cover__type">PDF</span><span class="mat-cover__brand">${esc(m.brand || CATEGORIES[m.category] || 'Вивафарм')}</span>
+          <a class="mat-cover${isPpt(m) ? ' mat-cover--ppt' : ''}" ${matOpen(m)} aria-label="Открыть «${esc(m.title)}»">
+            <span class="mat-cover__type">${matType(m)}</span><span class="mat-cover__brand">${esc(m.brand || CATEGORIES[m.category] || 'Вивафарм')}</span>
           </a>
           <div class="mat-body">
             <div class="meta">${m.category && CATEGORIES[m.category] ? `<span>${esc(CATEGORIES[m.category])}</span>` : ''}<span>${fileSize(m.size)}</span><span>${formatDate(m.added)}</span>${m.added > fresh ? '<span class="badge badge--done">новое</span>' : ''}</div>
             <h3>${esc(m.title)}</h3>
             ${m.description ? `<p class="muted small">${esc(m.description)}</p>` : ''}
             <div class="btn-row">
-              <a class="btn btn--primary btn--sm" href="${matUrl(m)}" target="_blank" rel="noopener">Открыть</a>
-              <a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать</a>
+              ${isPpt(m) ? `<a class="btn btn--primary btn--sm" href="${matUrl(m, true)}" title="Откроется в PowerPoint; на телефоне — в приложении PowerPoint или Google Презентации">Скачать PowerPoint</a>`
+                : `<a class="btn btn--primary btn--sm" href="${matUrl(m)}" target="_blank" rel="noopener">Открыть</a>
+              <a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать</a>`}
               ${c ? `<a class="btn btn--ghost btn--sm" href="#/course/${c.id}">${isPassed(c) ? 'Курс пройден ✓' : 'Тест по теме'}</a>` : ''}
             </div>
             ${isAdmin() ? `<div class="mat-admin"><button class="link-btn" data-mat-edit="${m.id}">Изменить</button><button class="link-btn" data-mat-delete="${m.id}">Удалить</button></div>` : ''}
@@ -1175,8 +1180,8 @@
       <form id="material-form" class="modal__body">
         <h2>${isNew ? 'Новая презентация' : 'Материал'}</h2>
         <input type="hidden" name="id" value="${m.id}">
-        ${isNew ? `<div class="field"><label for="mat-file">Файл PDF</label><input id="mat-file" name="file" type="file" accept="application/pdf,.pdf" required>
-          <p class="muted small">Из PowerPoint или Canva: «Файл → Сохранить как / Скачать → PDF». Файл загружается без изменений.</p></div>` : ''}
+        ${isNew ? `<div class="field"><label for="mat-file">Файл PDF или PowerPoint</label><input id="mat-file" name="file" type="file" accept="application/pdf,.pdf,.pptx,.ppsx,.ppt,.pps,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint" required>
+          <p class="muted small">Файл загружается без изменений. PDF сотрудники откроют прямо на сайте, а PowerPoint (.pptx, .ppt) — скачают и откроют в программе. Для просмотра с телефона удобнее PDF: в PowerPoint «Файл → Сохранить как → PDF».</p></div>` : ''}
         <div class="field"><label for="mat-title">Название</label><input id="mat-title" name="title" required maxlength="200" value="${esc(m.title)}"></div>
         <div class="field-row">
           <div class="field"><label for="mat-brand">Бренд или автор</label><input id="mat-brand" name="brand" maxlength="120" value="${esc(m.brand)}" placeholder="например, Гельтек"></div>
@@ -1198,15 +1203,18 @@
     if (file) {
       file.addEventListener('change', () => {
         const t = modal.querySelector('#mat-title');
-        if (file.files[0] && !t.value) t.value = file.files[0].name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
+        if (file.files[0] && !t.value) t.value = file.files[0].name.replace(/\.(pdf|pptx|ppsx|ppt|pps)$/i, '').replace(/\s*\(\d+\)$/, '').replace(/[_]+/g, ' ').trim();
       });
     }
   }
 
   // Файл уходит на сервер частями по 512 КБ: так не мешают ограничения хостинга на размер запроса
   async function uploadPdf(file, onProgress) {
-    const head = new Uint8Array(await file.slice(0, 5).arrayBuffer());
-    if (String.fromCharCode(...head) !== '%PDF-') throw new Error('Это не PDF-файл. Сохраните презентацию в PDF и загрузите снова.');
+    const head = String.fromCharCode(...new Uint8Array(await file.slice(0, 8).arrayBuffer()));
+    const ext = (file.name.match(/\.([a-z]+)$/i) || ['', ''])[1].toLowerCase();
+    const kind = head.startsWith('%PDF-') ? 'pdf' : head.startsWith('PK\x03\x04') ? 'pptx' : head === '\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1' ? 'ppt' : '';
+    const want = { pdf: 'pdf', pptx: 'pptx', ppsx: 'pptx', potx: 'pptx', ppt: 'ppt', pps: 'ppt' }[ext];
+    if (!kind || kind !== want) throw new Error('Можно загрузить PDF или презентацию PowerPoint (.pptx, .ppt). Этот файл не подходит.');
     const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
     const size = 512 * 1024;
     for (let i = 0, off = 0; off < file.size; i++, off += size) {
@@ -2399,7 +2407,7 @@
         };
         if (!data.id) {
           const file = f.file.files[0];
-          if (!file) throw new Error('Выберите файл PDF.');
+          if (!file) throw new Error('Выберите файл PDF или PowerPoint.');
           const pr = form.querySelector('#mat-progress');
           data.upload = await uploadPdf(file, (p) => { pr.textContent = `Загружено ${p}% из ${fileSize(file.size)}…`; });
           data.name = file.name;
