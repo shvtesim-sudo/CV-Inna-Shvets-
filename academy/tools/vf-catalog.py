@@ -2,7 +2,8 @@
 """Снимок лекарственного каталога vivafarm.md для справочника по МНН (js/assortment.js).
 
 Запуск:  python3 tools/vf-catalog.py
-Собирает название, ссылку и раздел каждого товара в «Лекарства и БАДы»; МНН берётся из скобок в названии.
+Собирает название, ссылку и раздел каждого товара в «Лекарства и БАДы»; затем tools/vf-props.py читает
+карточки товаров (МНН, форма выпуска, рецептурность), а tools/assortment-enrich.js дописывает их в снимок.
 Это снимок каталога, а не остатки аптек: наличие уточняется в программе аптеки.
 """
 import html, json, re, sys, time, urllib.request, os
@@ -52,5 +53,6 @@ with open(out, 'w', encoding='utf-8') as f:
             ', cats: ' + json.dumps(cat_list, ensure_ascii=False) + ', rows: ' +
             json.dumps(rows, ensure_ascii=False, separators=(',', ':')) + '};\n')
 print(f'{len(items)} товаров → js/assortment.js', file=sys.stderr)
-# Достроить МНН и определить форму выпуска
+# Свойства из карточек товаров (МНН, форма выпуска, рецептурность), затем МНН и форма в снимок
+os.system(sys.executable + ' ' + os.path.join(os.path.dirname(__file__), 'vf-props.py'))
 os.system('node ' + os.path.join(os.path.dirname(__file__), 'assortment-enrich.js'))
