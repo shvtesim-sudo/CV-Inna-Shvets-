@@ -124,15 +124,22 @@ if ($action === 'material_file') {
     }
     $name = preg_replace('/[^\p{L}\p{N} ._-]+/u', '', $m['title']) ?: 'material';
     $ascii = preg_replace('/[^A-Za-z0-9._-]+/', '_', $m['original_name']);
-    if (!preg_match('/[A-Za-z0-9]{2}/', pathinfo($ascii, PATHINFO_FILENAME))) {
-        $ascii = 'vivaacademy-material-' . (int)$m['id'] . '.pdf';
+    $type = material_type((string)$m['original_name']);
+    $ext = '.' . strtolower(pathinfo((string)$m['original_name'], PATHINFO_EXTENSION));
+    if ($type === 'pdf') {
+        $ext = '.pdf';
     }
-    header('Content-Type: application/pdf');
+    if (!preg_match('/[A-Za-z0-9]{2}/', pathinfo($ascii, PATHINFO_FILENAME))) {
+        $ascii = 'vivaacademy-material-' . (int)$m['id'] . $ext;
+    }
+    $mime = ['pdf' => 'application/pdf', 'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'ppt' => 'application/vnd.ms-powerpoint'];
+    header('Content-Type: ' . $mime[$type]);
     header('Content-Length: ' . (int)$m['size']);
     header('Cache-Control: private, max-age=86400');
     header('X-Content-Type-Options: nosniff');
-    header('Content-Disposition: ' . (!empty($_GET['dl']) ? 'attachment' : 'inline')
-        . '; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($name . '.pdf'));
+    // PowerPoint браузер показать не может — всегда отдаём как скачивание
+    header('Content-Disposition: ' . (!empty($_GET['dl']) || $type !== 'pdf' ? 'attachment' : 'inline')
+        . '; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($name . $ext));
     // По одной части за запрос — не держим весь файл в памяти
     for ($i = 0;; $i++) {
         $v = q('SELECT data FROM material_chunks WHERE upload = ? AND idx = ?', [$m['file'], $i])->fetchColumn();
@@ -561,7 +568,7 @@ switch ($action) {
         }
         exit;
 
-    // Загрузка PDF частями (обходит ограничение хостинга на размер одного запроса)
+    // Загрузка PDF или PowerPoint частями (обходит ограничение хостинга на размер одного запроса)
     case 'admin_material_chunk':
         require_admin();
         $token = preg_replace('/[^a-f0-9]/', '', str_in('upload', 64));
@@ -571,8 +578,8 @@ switch ($action) {
             fail(422, 'invalid', 'Некорректная часть файла.');
         }
         if ($index === 0) {
-            if (substr($data, 0, 5) !== '%PDF-') {
-                fail(422, 'invalid', 'Это не PDF-файл. Сохраните презентацию в PDF и загрузите снова.');
+            if (material_magic($data) === '') {
+                fail(422, 'invalid', 'Можно загрузить PDF или презентацию PowerPoint (.pptx, .ppt).');
             }
             q('DELETE FROM material_chunks WHERE upload = ?', [$token]);
         } elseif ((int)q('SELECT COUNT(*) FROM material_chunks WHERE upload = ?', [$token])->fetchColumn() !== $index) {
@@ -594,6 +601,11 @@ switch ($action) {
             json_out(['ok' => true]);
         }
         $token = preg_replace('/[^a-f0-9]/', '', str_in('upload', 64));
+        $first = q('SELECT data FROM material_chunks WHERE upload = ? AND idx = 0', [$token])->fetchColumn();
+        $name = str_in('name', 200);
+        if ($first !== false && material_magic(chunk_data($first)) !== material_type($name)) {
+            fail(422, 'invalid', 'Расширение файла не совпадает с содержимым. Загрузите PDF, .pptx или .ppt.');
+        }
         $size = 0;
         foreach (q('SELECT data FROM material_chunks WHERE upload = ?', [$token]) as $r) {
             $size += strlen(chunk_data($r['data']));
@@ -602,7 +614,7 @@ switch ($action) {
             fail(422, 'invalid', 'Сначала загрузите файл.');
         }
         q('INSERT INTO materials (title, brand, category, description, course_id, file, original_name, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          array_merge($fields, [$token, str_in('name', 200), $size, now()]));
+          array_merge($fields, [$token, $name, $size, now()]));
         if (!empty(input()['announce'])) {
             tg_broadcast('📚 <b>Новый учебный материал</b>' . "\n\n" . h($title) . ($fields[1] !== '' ? ' · ' . h($fields[1]) : '')
                 . "\n\n" . 'Открыть: ' . site_url() . '#/materials');
