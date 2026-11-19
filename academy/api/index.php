@@ -122,34 +122,86 @@ if ($action === 'material_file') {
     if (!$m) {
         fail(404, 'not_found', 'Материал не найден.');
     }
-    $name = preg_replace('/[^\p{L}\p{N} ._-]+/u', '', $m['title']) ?: 'material';
-    $ascii = preg_replace('/[^A-Za-z0-9._-]+/', '_', $m['original_name']);
     $type = material_type((string)$m['original_name']);
-    $ext = '.' . strtolower(pathinfo((string)$m['original_name'], PATHINFO_EXTENSION));
-    if ($type === 'pdf') {
-        $ext = '.pdf';
-    }
-    if (!preg_match('/[A-Za-z0-9]{2}/', pathinfo($ascii, PATHINFO_FILENAME))) {
-        $ascii = 'vivaacademy-material-' . (int)$m['id'] . $ext;
-    }
+    // У презентации PowerPoint по умолчанию отдаём PDF-копию (если готова), с orig=1 — исходный файл
+    $usePdf = $type !== 'pdf' && !empty($m['pdf']) && empty($_GET['orig']);
+    $kind = $usePdf ? 'pdf' : $type;
+    $ext = $kind === 'pdf' ? '.pdf' : '.' . strtolower(pathinfo((string)$m['original_name'], PATHINFO_EXTENSION));
+    $name = preg_replace('/[^\p{L}\p{N} ._-]+/u', '', $m['title']) ?: 'material';
+    $ascii = preg_replace('/[^A-Za-z0-9._-]+/', '_', pathinfo((string)$m['original_name'], PATHINFO_FILENAME));
+    $ascii = preg_match('/[A-Za-z0-9]{2}/', $ascii) ? $ascii . $ext : 'vivaacademy-material-' . (int)$m['id'] . $ext;
     $mime = ['pdf' => 'application/pdf', 'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'ppt' => 'application/vnd.ms-powerpoint'];
-    header('Content-Type: ' . $mime[$type]);
-    header('Content-Length: ' . (int)$m['size']);
+    header('Content-Type: ' . $mime[$kind]);
+    header('Content-Length: ' . (int)($usePdf ? $m['pdf_size'] : $m['size']));
     header('Cache-Control: private, max-age=86400');
     header('X-Content-Type-Options: nosniff');
     // PowerPoint браузер показать не может — всегда отдаём как скачивание
-    header('Content-Disposition: ' . (!empty($_GET['dl']) || $type !== 'pdf' ? 'attachment' : 'inline')
+    header('Content-Disposition: ' . (!empty($_GET['dl']) || $kind !== 'pdf' ? 'attachment' : 'inline')
         . '; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($name . $ext));
-    // По одной части за запрос — не держим весь файл в памяти
-    for ($i = 0;; $i++) {
-        $v = q('SELECT data FROM material_chunks WHERE upload = ? AND idx = ?', [$m['file'], $i])->fetchColumn();
-        if ($v === false) {
-            break;
-        }
-        echo chunk_data($v);
-        flush();
-    }
+    stream_upload($usePdf ? $m['pdf'] : $m['file']);
     exit;
+}
+
+// Конвертер презентаций PowerPoint → PDF (GitHub Actions, tools/convert-materials.py). Доступ — по ключу выкладки.
+if (strpos($action, 'conv_') === 0) {
+    if (!conv_key_ok()) {
+        fail(403, 'forbidden', 'Нет доступа.');
+    }
+    if ($action === 'conv_next') {
+        foreach (q('SELECT id, original_name, size, conv_tries FROM materials WHERE pdf IS NULL AND conv_tries < 3 ORDER BY id') as $r) {
+            if (material_type((string)$r['original_name']) !== 'pdf') {
+                json_out(['material' => ['id' => (int)$r['id'], 'name' => $r['original_name'], 'size' => (int)$r['size']]]);
+            }
+        }
+        json_out(['material' => null]);
+    }
+    if ($action === 'conv_source') {
+        $m = q('SELECT file, size FROM materials WHERE id = ?', [(int)($_GET['id'] ?? 0)])->fetch();
+        if (!$m) {
+            fail(404, 'not_found', 'Материал не найден.');
+        }
+        header('Content-Type: application/octet-stream');
+        header('Content-Length: ' . (int)$m['size']);
+        stream_upload($m['file']);
+        exit;
+    }
+    if ($action === 'conv_chunk') {
+        $token = preg_replace('/[^a-f0-9]/', '', str_in('upload', 64));
+        $index = (int)(input()['index'] ?? -1);
+        $data = base64_decode((string)(input()['data'] ?? ''), true);
+        if (strlen($token) !== 32 || $index < 0 || $index > 400 || $data === false || $data === '' || strlen($data) > 1024 * 1024) {
+            fail(422, 'invalid', 'Некорректная часть файла.');
+        }
+        if ($index === 0) {
+            if (material_magic($data) !== 'pdf') {
+                fail(422, 'invalid', 'Это не PDF.');
+            }
+            q('DELETE FROM material_chunks WHERE upload = ?', [$token]);
+        } elseif ((int)q('SELECT COUNT(*) FROM material_chunks WHERE upload = ?', [$token])->fetchColumn() !== $index) {
+            fail(409, 'order', 'Нарушен порядок частей.');
+        }
+        put_chunk($token, $index, $data);
+        json_out(['ok' => true]);
+    }
+    if ($action === 'conv_done' || $action === 'conv_fail') {
+        $id = (int)(input()['id'] ?? 0);
+        if ($action === 'conv_fail') {
+            q('UPDATE materials SET conv_tries = conv_tries + 1, conv_error = ? WHERE id = ?', [str_in('error', 300), $id]);
+            json_out(['ok' => true]);
+        }
+        $token = preg_replace('/[^a-f0-9]/', '', str_in('upload', 64));
+        $size = strlen($token) === 32 ? upload_size($token) : 0;
+        if (!$size) {
+            fail(422, 'invalid', 'PDF не загружен.');
+        }
+        $old = q('SELECT pdf FROM materials WHERE id = ?', [$id])->fetchColumn();
+        q("UPDATE materials SET pdf = ?, pdf_size = ?, conv_error = '' WHERE id = ?", [$token, $size, $id]);
+        if ($old && $old !== $token) {
+            q('DELETE FROM material_chunks WHERE upload = ?', [$old]);
+        }
+        json_out(['ok' => true, 'size' => $size]);
+    }
+    fail(404, 'not_found', 'Неизвестное действие.');
 }
 
 // Афиша мероприятий
@@ -606,11 +658,8 @@ switch ($action) {
         if ($first !== false && material_magic(chunk_data($first)) !== material_type($name)) {
             fail(422, 'invalid', 'Расширение файла не совпадает с содержимым. Загрузите PDF, .pptx или .ppt.');
         }
-        $size = 0;
-        foreach (q('SELECT data FROM material_chunks WHERE upload = ?', [$token]) as $r) {
-            $size += strlen(chunk_data($r['data']));
-        }
-        if (strlen($token) !== 32 || !$size) {
+        $size = strlen($token) === 32 ? upload_size($token) : 0;
+        if (!$size) {
             fail(422, 'invalid', 'Сначала загрузите файл.');
         }
         q('INSERT INTO materials (title, brand, category, description, course_id, file, original_name, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -620,14 +669,15 @@ switch ($action) {
                 . "\n\n" . 'Открыть: ' . site_url() . '#/materials');
         }
         // Части брошенных загрузок старше суток
-        q('DELETE FROM material_chunks WHERE created_at < ? AND upload NOT IN (SELECT file FROM materials)', [gmdate('Y-m-d H:i:s', time() - 86400)]);
+        q('DELETE FROM material_chunks WHERE created_at < ? AND upload NOT IN (SELECT file FROM materials)
+           AND upload NOT IN (SELECT pdf FROM materials WHERE pdf IS NOT NULL)', [gmdate('Y-m-d H:i:s', time() - 86400)]);
         json_out(['ok' => true]);
 
     case 'admin_material_delete':
         require_admin();
-        $m = q('SELECT file FROM materials WHERE id = ?', [(int)(input()['id'] ?? 0)])->fetch();
+        $m = q('SELECT file, pdf FROM materials WHERE id = ?', [(int)(input()['id'] ?? 0)])->fetch();
         if ($m) {
-            q('DELETE FROM material_chunks WHERE upload = ?', [$m['file']]);
+            q('DELETE FROM material_chunks WHERE upload = ? OR upload = ?', [$m['file'], (string)$m['pdf']]);
             q('DELETE FROM materials WHERE id = ?', [(int)(input()['id'] ?? 0)]);
         }
         json_out(['ok' => true]);

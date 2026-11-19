@@ -129,7 +129,11 @@ function schema(): array
             file VARCHAR(80) NOT NULL,
             original_name VARCHAR(200) NOT NULL DEFAULT '',
             size INT NOT NULL DEFAULT 0,
-            created_at DATETIME NOT NULL
+            created_at DATETIME NOT NULL,
+            pdf VARCHAR(32) NULL,
+            pdf_size INT NOT NULL DEFAULT 0,
+            conv_tries INT NOT NULL DEFAULT 0,
+            conv_error VARCHAR(300) NOT NULL DEFAULT ''
         )$tail",
         // Содержимое файлов материалов частями по 512 КБ (хранится в базе — не нужны права записи на диск)
         "CREATE TABLE IF NOT EXISTS material_chunks (
@@ -173,7 +177,7 @@ function schema(): array
 }
 
 // Новые таблицы для уже установленной платформы: создаются один раз при первом запросе
-const SCHEMA_VERSION = '5';
+const SCHEMA_VERSION = '6';
 function migrate(): void
 {
     try {
@@ -186,6 +190,14 @@ function migrate(): void
     try {
         foreach (schema() as $sql) {
             db()->exec($sql);
+        }
+        // Версия 6: PDF-копия презентаций PowerPoint (делает GitHub Actions, см. tools/convert-materials.py)
+        foreach (['pdf VARCHAR(32) NULL', 'pdf_size INT NOT NULL DEFAULT 0', 'conv_tries INT NOT NULL DEFAULT 0', "conv_error VARCHAR(300) NOT NULL DEFAULT ''"] as $col) {
+            try {
+                db()->exec('ALTER TABLE materials ADD COLUMN ' . $col);
+            } catch (Throwable $e) {
+                // колонка уже есть
+            }
         }
         seed();
         set_setting('schema_version', SCHEMA_VERSION);
@@ -506,10 +518,47 @@ function material_magic(string $data): string
     return substr($data, 0, 8) === "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" ? 'ppt' : '';
 }
 
+// Ключ для конвертера презентаций (GitHub Actions). Файл api/conv_key.php создаёт выкладка;
+// ключ выводится из секрета выкладки, поэтому отдельно настраивать ничего не нужно.
+function conv_key_ok(): bool
+{
+    $f = __DIR__ . '/conv_key.php';
+    $key = is_file($f) ? (string)(include $f) : '';
+    $got = (string)($_SERVER['HTTP_X_CONV_KEY'] ?? '');
+    return strlen($key) >= 32 && hash_equals($key, $got);
+}
+
+// Отдать файл из частей в базе — по одной части за раз, не держа весь файл в памяти
+function stream_upload(string $upload): void
+{
+    for ($i = 0;; $i++) {
+        $v = q('SELECT data FROM material_chunks WHERE upload = ? AND idx = ?', [$upload, $i])->fetchColumn();
+        if ($v === false) {
+            break;
+        }
+        echo chunk_data($v);
+        flush();
+    }
+}
+
+function upload_size(string $upload): int
+{
+    $size = 0;
+    foreach (q('SELECT data FROM material_chunks WHERE upload = ?', [$upload]) as $r) {
+        $size += strlen(chunk_data($r['data']));
+    }
+    return $size;
+}
+
 function material_row(array $r): array
 {
+    $type = material_type((string)$r['original_name']);
     return [
-        'type' => material_type((string)$r['original_name']),
+        'type' => $type,
+        // Для PowerPoint: есть ли готовая PDF-копия для просмотра и идёт ли ещё её подготовка
+        'pdf' => $type !== 'pdf' && !empty($r['pdf']),
+        'pdfSize' => (int)($r['pdf_size'] ?? 0),
+        'converting' => $type !== 'pdf' && empty($r['pdf']) && (int)($r['conv_tries'] ?? 0) < 3,
         'id' => (int)$r['id'], 'title' => $r['title'], 'brand' => $r['brand'], 'category' => $r['category'],
         'description' => (string)$r['description'], 'course' => $r['course_id'], 'size' => (int)$r['size'],
         'added' => strtotime($r['created_at'] . ' UTC') * 1000,

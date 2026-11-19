@@ -1099,11 +1099,12 @@
 
   /* ───────────── Учебные материалы (презентации PDF) ───────────── */
   let mats = { list: null, cat: 'all', q: '' };
-  const matUrl = (m, dl) => `${API}?action=material_file&id=${m.id}${dl ? '&dl=1' : ''}`;
+  const matUrl = (m, dl, orig) => `${API}?action=material_file&id=${m.id}${dl ? '&dl=1' : ''}${orig ? '&orig=1' : ''}`;
   const isPpt = (m) => m.type === 'pptx' || m.type === 'ppt';
+  // PowerPoint без готовой PDF-копии можно только скачать; с копией — открыть в браузере, как PDF
+  const pptOnly = (m) => isPpt(m) && !m.pdf;
   const matType = (m) => (isPpt(m) ? 'PPT' : 'PDF');
-  // PDF открывается в браузере, PowerPoint — скачивается и открывается в программе
-  const matOpen = (m) => (isPpt(m) ? `href="${matUrl(m, true)}"` : `href="${matUrl(m)}" target="_blank" rel="noopener"`);
+  const matOpen = (m) => (pptOnly(m) ? `href="${matUrl(m, true)}"` : `href="${matUrl(m)}" target="_blank" rel="noopener"`);
   const fileSize = (b) => b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} МБ` : `${Math.max(1, Math.round(b / 1024))} КБ`;
 
   function viewMaterials() {
@@ -1111,7 +1112,7 @@
       <div class="wrap">
         <div class="crumbs"><a href="#/">Главная</a> / Учебные материалы</div>
         <div class="section__head"><div><h1 style="margin:0">Учебные материалы</h1>
-          <p>Презентации брендов и тренингов в исходном виде. PDF открывается прямо на сайте, PowerPoint — скачивается и открывается в PowerPoint или Google Презентациях.</p></div>
+          <p>Презентации брендов и тренингов в исходном виде. Откройте для просмотра на сайте или скачайте; у презентаций PowerPoint можно скачать и оригинал.</p></div>
           ${isAdmin() ? '<button class="btn btn--primary btn--sm" data-mat-new>+ Загрузить презентацию</button>' : ''}</div>
         <input class="search" id="mat-q" type="search" placeholder="Поиск: бренд, тема, продукт…" value="${esc(mats.q)}" aria-label="Поиск материалов">
         <div class="filters" id="mat-cats" role="group" aria-label="Направления"></div>
@@ -1158,15 +1159,17 @@
             <span class="mat-cover__type">${matType(m)}</span><span class="mat-cover__brand">${esc(m.brand || CATEGORIES[m.category] || 'Вивафарм')}</span>
           </a>
           <div class="mat-body">
-            <div class="meta">${m.category && CATEGORIES[m.category] ? `<span>${esc(CATEGORIES[m.category])}</span>` : ''}<span>${fileSize(m.size)}</span><span>${formatDate(m.added)}</span>${m.added > fresh ? '<span class="badge badge--done">новое</span>' : ''}</div>
+            <div class="meta">${m.category && CATEGORIES[m.category] ? `<span>${esc(CATEGORIES[m.category])}</span>` : ''}<span>${fileSize(m.pdf ? m.pdfSize : m.size)}</span><span>${formatDate(m.added)}</span>${m.added > fresh ? '<span class="badge badge--done">новое</span>' : ''}</div>
             <h3>${esc(m.title)}</h3>
             ${m.description ? `<p class="muted small">${esc(m.description)}</p>` : ''}
             <div class="btn-row">
-              ${isPpt(m) ? `<a class="btn btn--primary btn--sm" href="${matUrl(m, true)}" title="Откроется в PowerPoint; на телефоне — в приложении PowerPoint или Google Презентации">Скачать PowerPoint</a>`
+              ${pptOnly(m) ? `<a class="btn btn--primary btn--sm" href="${matUrl(m, true)}" title="Откроется в PowerPoint; на телефоне — в приложении PowerPoint или Google Презентации">Скачать PowerPoint</a>`
                 : `<a class="btn btn--primary btn--sm" href="${matUrl(m)}" target="_blank" rel="noopener">Открыть</a>
               <a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать</a>`}
               ${c ? `<a class="btn btn--ghost btn--sm" href="#/course/${c.id}">${isPassed(c) ? 'Курс пройден ✓' : 'Тест по теме'}</a>` : ''}
             </div>
+            ${isPpt(m) && m.pdf ? `<p class="mat-orig small"><a href="${matUrl(m, true, true)}">Оригинал PowerPoint (${fileSize(m.size)})</a></p>` : ''}
+            ${pptOnly(m) && m.converting ? '<p class="muted small">Готовим версию для просмотра на сайте — обычно до 15 минут после загрузки.</p>' : ''}
             ${isAdmin() ? `<div class="mat-admin"><button class="link-btn" data-mat-edit="${m.id}">Изменить</button><button class="link-btn" data-mat-delete="${m.id}">Удалить</button></div>` : ''}
           </div>
         </article>`;
@@ -1181,7 +1184,7 @@
         <h2>${isNew ? 'Новая презентация' : 'Материал'}</h2>
         <input type="hidden" name="id" value="${m.id}">
         ${isNew ? `<div class="field"><label for="mat-file">Файл PDF или PowerPoint</label><input id="mat-file" name="file" type="file" accept="application/pdf,.pdf,.pptx,.ppsx,.ppt,.pps,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint" required>
-          <p class="muted small">Файл загружается без изменений. PDF сотрудники откроют прямо на сайте, а PowerPoint (.pptx, .ppt) — скачают и откроют в программе. Для просмотра с телефона удобнее PDF: в PowerPoint «Файл → Сохранить как → PDF».</p></div>` : ''}
+          <p class="muted small">Файл загружается без изменений. Из презентации PowerPoint (.pptx, .ppt) сайт сам сделает PDF для просмотра — обычно в течение 15 минут; оригинал тоже можно будет скачать.</p></div>` : ''}
         <div class="field"><label for="mat-title">Название</label><input id="mat-title" name="title" required maxlength="200" value="${esc(m.title)}"></div>
         <div class="field-row">
           <div class="field"><label for="mat-brand">Бренд или автор</label><input id="mat-brand" name="brand" maxlength="120" value="${esc(m.brand)}" placeholder="например, Гельтек"></div>
