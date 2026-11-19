@@ -89,6 +89,9 @@ jobs:
           VERSION="${GITHUB_SHA::8}"
           sed -i "s/__VERSION__/$VERSION/g" academy/index.html
           printf '%s\n' "$VERSION" > academy/api/version.txt
+          # Ключ для конвертера презентаций PowerPoint → PDF (academy-cron.yml):
+          # выводится из того же секрета, поэтому отдельно его задавать не нужно
+          python3 -c "import hashlib,os; print(\"<?php return '\" + hashlib.sha256(('viva-conv:' + os.environ['DEPLOY_SSH_KEY']).encode()).hexdigest() + \"';\")" > academy/api/conv_key.php
           # Только добавляем и перезаписываем файлы сайта: ничего не удаляем,
           # настройки базы, данные и установщик на сервере не трогаем.
           rsync -rlvz --checksum --chmod=D755,F644 \

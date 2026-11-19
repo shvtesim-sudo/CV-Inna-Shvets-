@@ -1167,3 +1167,5 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 
 /* Презентация PowerPoint в материалах */
 .mat-cover--ppt .mat-cover__type { background: #c43e1c; color: #fff; }
+.mat-orig { margin: 4px 0 0; }
+.mat-orig a { color: var(--muted, #667085); }
