@@ -1078,6 +1078,8 @@
     try {
       const r = await call('event_regs&id=' + id);
       modal.peopleList = r.people;
+      modal.eventTitle = `${e.title} (${evFull(e.startsAt)})`;
+      modal.eventName = e.title;
       document.getElementById('ev-people').innerHTML = r.people.length
         ? `<ol class="ev-people">${r.people.map((p) => `<li><b>${esc(p.name)}</b> <small class="muted">${esc(p.branch || '')}${p.tg ? ' · Telegram ✓' : ''}</small></li>`).join('')}</ol>`
         : '<p class="muted">Пока никто не записался.</p>';
@@ -2685,7 +2687,9 @@
       const [b, list] = Array.from(sheets.entries())[Number(t.dataset.sheetCsv) - 1];
       downloadCsv(`viva-academy-${translit(b)}.csv`, [['ФИО', 'Логин', 'Пароль']].concat(list.map((u) => [u.name, u.login, u.password])));
     } else if (t.dataset.evCsv) {
-      downloadCsv('viva-academy-zapis.csv', [['ФИО', 'Логин', 'Аптека', 'Telegram', 'Записался']].concat(modal.peopleList.map((p) => [p.name, p.login, p.branch || '', p.tg ? 'да' : 'нет', p.at])));
+      // Список для распечатки: мероприятие в каждой строке и пустая колонка для подписи
+      downloadCsv(`viva-academy-zapis-${translit(modal.eventName || '').slice(0, 50).replace(/-+$/, '')}.csv`, [['№', 'Мероприятие', 'ФИО', 'Логин', 'Аптека', 'Telegram', 'Записался', 'Подпись']]
+        .concat(modal.peopleList.map((p, i) => [i + 1, modal.eventTitle || '', p.name, p.login, p.branch || '', p.tg ? 'да' : 'нет', p.at, ''])));
     } else if (t.hasAttribute('data-genpass')) {
       modal.querySelector('#u-password').value = genPassword();
     } else if (t.hasAttribute('data-cred-download')) {
