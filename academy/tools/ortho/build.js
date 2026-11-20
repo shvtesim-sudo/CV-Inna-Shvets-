@@ -10,6 +10,13 @@ const root = path.join(dir, '..', '..');
 const ORTHO = [];
 fs.readdirSync(dir).filter((f) => /^\d.*\.js$/.test(f)).sort()
   .forEach((f) => vm.runInNewContext(fs.readFileSync(path.join(dir, f), 'utf8'), { ORTHO }, { filename: f }));
+// Отдельные курсы вне «Ортопедии» (tools/extra/*.js): EXTRA.push({ id, title, short, icon, category, level, lessons, quiz })
+const EXTRA = [];
+const extraDir = path.join(dir, '..', 'extra');
+if (fs.existsSync(extraDir)) {
+  fs.readdirSync(extraDir).filter((f) => f.endsWith('.js')).sort()
+    .forEach((f) => vm.runInNewContext(fs.readFileSync(path.join(extraDir, f), 'utf8'), { EXTRA }, { filename: f }));
+}
 // Конспекты обучающих видео Крейт (tools/ortho/notes/*.js): NOTES.push({ id, block, title, video, html })
 const NOTES = [];
 const notesDir = path.join(dir, 'notes');
@@ -25,8 +32,9 @@ function seeded(str) {
   return () => { h ^= h << 13; h >>>= 0; h ^= h >>> 17; h ^= h << 5; h >>>= 0; return h / 4294967296; };
 }
 let errors = 0;
-for (const c of ORTHO) {
-  Object.assign(c, { category: 'ortho', level: 'Базовый' });
+ORTHO.forEach((c) => Object.assign(c, { category: 'ortho', level: 'Базовый' }));
+EXTRA.forEach((c) => { c.level = c.level || 'Базовый'; if (!c.category) { console.error(`${c.id}: нет категории`); errors++; } });
+for (const c of ORTHO.concat(EXTRA)) {
   if (c.quiz.length !== 20) { console.error(`${c.id}: ${c.quiz.length} вопросов вместо 20`); errors++; }
   c.quiz.forEach((q, i) => {
     if (!q.q || q.options.length < 3 || !(q.correct >= 0 && q.correct < q.options.length) || !q.explain) { console.error(`${c.id}: вопрос ${i + 1} оформлен неверно`); errors++; }
@@ -58,7 +66,9 @@ const out = `// Сгенерировано tools/ortho/build.js из tools/ortho
   const BLOCKS = ${JSON.stringify(ORTHO, null, 1)};
   window.ORTHO = Object.assign(${JSON.stringify(META)}, { blocks: BLOCKS.map((c) => c.id), notes: ${JSON.stringify(NOTES, null, 1)} });
   BLOCKS.forEach((c) => window.COURSES.push(c));
+  // Отдельные курсы (tools/extra)
+  ${JSON.stringify(EXTRA, null, 1)}.forEach((c) => window.COURSES.push(c));
 })();
 `;
 fs.writeFileSync(path.join(root, 'js/data-ortho.js'), out);
-console.log('js/data-ortho.js: ' + ORTHO.map((c) => `${c.id} (${c.lessons.length} ур., ${c.quiz.length} вопр.)`).join(', ') + `; конспектов видео: ${NOTES.length}`);
+console.log('js/data-ortho.js: ' + ORTHO.map((c) => `${c.id} (${c.lessons.length} ур., ${c.quiz.length} вопр.)`).join(', ') + `; конспектов видео: ${NOTES.length}; отдельные курсы: ${EXTRA.map((c) => `${c.id} (${c.lessons.length} ур., ${c.quiz.length} вопр.)`).join(', ') || 'нет'}`);
