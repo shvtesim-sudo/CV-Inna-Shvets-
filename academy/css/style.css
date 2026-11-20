@@ -1229,3 +1229,4 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 .ortho-mats .section__head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .ortho-video--doc .ortho-video__play { background: #1f4a6b; font: 700 .62rem var(--font-head); letter-spacing: .04em; }
 .ortho-video--ppt .ortho-video__play { background: #c43e1c; }
+.conv-steps { margin: 4px 0 12px; padding-left: 18px; } .conv-steps li { margin: 3px 0; }

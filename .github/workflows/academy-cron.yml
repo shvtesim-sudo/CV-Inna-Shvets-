@@ -1,8 +1,6 @@
 # Каждые 15 минут будит сайт: он рассылает напоминания о мероприятиях
 # и объявления о новых курсах в Telegram. Сайт сам решает, что пора отправить,
 # повторный вызов ничего не дублирует.
-# Второе задание делает PDF-копии загруженных презентаций PowerPoint,
-# чтобы их можно было открыть прямо на сайте (LibreOffice ставится, только если есть работа).
 name: Academy reminders
 
 on:
@@ -20,40 +18,3 @@ jobs:
       - name: Run reminders
         run: curl -fsS --max-time 120 "https://vivaacademy.md/api/index.php?action=cron"
 
-  convert:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Check for presentations to convert
-        id: next
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-        run: |
-          if [ -z "$DEPLOY_SSH_KEY" ]; then echo "work=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          KEY=$(python3 -c "import hashlib,os; print(hashlib.sha256(('viva-conv:' + os.environ['DEPLOY_SSH_KEY']).encode()).hexdigest())")
-          echo "::add-mask::$KEY"
-          R=$(curl -sS --max-time 60 -H "X-Conv-Key: $KEY" "https://vivaacademy.md/api/index.php?action=conv_next" || true)
-          echo "$R" | grep -q '"material":{' && echo "work=true" >> "$GITHUB_OUTPUT" || { echo "work=false" >> "$GITHUB_OUTPUT"; echo "Нет презентаций для конвертации"; }
-
-      - uses: actions/checkout@v4
-        if: steps.next.outputs.work == 'true'
-        with:
-          sparse-checkout: academy/tools
-
-      - name: Install LibreOffice and fonts
-        if: steps.next.outputs.work == 'true'
-        run: |
-          sudo apt-get update -qq
-          echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | sudo debconf-set-selections
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends libreoffice-impress \
-            fonts-crosextra-carlito fonts-crosextra-caladea fonts-liberation fonts-dejavu fonts-noto-core > /dev/null
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ttf-mscorefonts-installer > /dev/null || echo "::warning::Шрифты Microsoft не установились — используем совместимые"
-
-      - name: Convert to PDF
-        if: steps.next.outputs.work == 'true'
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-        run: |
-          export CONV_KEY=$(python3 -c "import hashlib,os; print(hashlib.sha256(('viva-conv:' + os.environ['DEPLOY_SSH_KEY']).encode()).hexdigest())")
-          echo "::add-mask::$CONV_KEY"
-          python3 academy/tools/convert-materials.py

@@ -446,7 +446,8 @@ switch ($action) {
         }
         json_out(['users' => $users, 'inviteCode' => $viewer['role'] === 'admin' ? setting('invite_code') : '',
                   'telegram' => ['bot' => setting('tg_bot'),
-                                 'linked' => (int)q('SELECT COUNT(*) FROM tg_links WHERE chat_id IS NOT NULL')->fetchColumn()]]);
+                                 'linked' => (int)q('SELECT COUNT(*) FROM tg_links WHERE chat_id IS NOT NULL')->fetchColumn()],
+                  'converter' => $viewer['role'] === 'admin' && setting('gh_token') !== '']);
 
     case 'admin_user_save':
         $me = require_admin();
@@ -712,6 +713,10 @@ switch ($action) {
         }
         q('INSERT INTO materials (title, brand, category, description, course_id, file, original_name, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
           array_merge($fields, [$token, $name, $size, now()]));
+        // Презентация PowerPoint: сразу запускаем конвертер PDF (если подключён токен GitHub)
+        if (is_ppt(material_type($name))) {
+            gh_dispatch();
+        }
         if (!empty(input()['announce'])) {
             tg_broadcast('📚 <b>Новый учебный материал</b>' . "\n\n" . h($title) . ($fields[1] !== '' ? ' · ' . h($fields[1]) : '')
                 . "\n\n" . 'Открыть: ' . site_url() . '#/materials');
@@ -813,6 +818,36 @@ switch ($action) {
         json_out(['ok' => true]);
 
     // Подключение бота: токен от @BotFather. Сайт сам проверяет его и настраивает вебхук.
+    // Конвертер PowerPoint → PDF: токен GitHub для мгновенного запуска и ручной запуск
+    case 'admin_conv_setup':
+        require_admin();
+        $token = trim(str_in('token', 300));
+        if ($token === '') {
+            set_setting('gh_token', '');
+            json_out(['ok' => true, 'converter' => false]);
+        }
+        if (!preg_match('/^(github_pat_|ghp_)[A-Za-z0-9_]{20,255}$/', $token)) {
+            fail(422, 'invalid', 'Это не похоже на токен GitHub: он начинается с github_pat_. Скопируйте его целиком.');
+        }
+        $code = gh_dispatch($token);
+        if ($code !== 204) {
+            fail(422, 'invalid', $code === 0 ? 'Сайт не смог связаться с GitHub. Попробуйте позже.'
+                : 'GitHub не принял токен (код ' . $code . '). Проверьте, что выбран репозиторий CV-Inna-Shvets- и разрешение Actions: Read and write.');
+        }
+        set_setting('gh_token', $token);
+        json_out(['ok' => true, 'converter' => true]);
+
+    case 'admin_conv_kick':
+        require_admin();
+        if (setting('gh_token') === '') {
+            fail(409, 'no_token', 'Конвертер не подключён: добавьте токен GitHub в кабинете руководителя.');
+        }
+        $code = gh_dispatch();
+        if ($code !== 204) {
+            fail(502, 'github', 'GitHub не запустил конвертер (код ' . $code . '). Возможно, токен истёк — замените его в кабинете руководителя.');
+        }
+        json_out(['ok' => true]);
+
     case 'admin_tg_setup':
         require_admin();
         $token = trim(str_in('token', 100));
