@@ -1185,6 +1185,7 @@
       return;
     }
     renderMaterials();
+    fillOrtho();
   }
 
   function renderMaterials() {
@@ -1206,9 +1207,13 @@
       grid.innerHTML = `<div class="empty">Материалов пока нет.${isAdmin() ? ' Нажмите «+ Загрузить презентацию».' : ''}</div>`;
       return;
     }
+    grid.innerHTML = list.length ? list.map(matCard).join('') : '<div class="empty">Ничего не найдено. Попробуйте другой запрос.</div>';
+  }
+
+  // Карточка материала: страница «Материалы» и раздел «Ортопедия»
+  function matCard(m) {
     const fresh = Date.now() - 14 * 864e5;
-    grid.innerHTML = list.length ? list.map((m) => {
-      const c = m.course && findCourse(m.course);
+    const c = m.course && findCourse(m.course);
       return `
         <article class="mat-card">
           <a class="mat-cover${isPpt(m) ? ' mat-cover--ppt' : ''}${isVideo(m) ? ' mat-cover--video' : ''}" ${matOpen(m)} aria-label="Открыть «${esc(m.title)}»">
@@ -1231,12 +1236,11 @@
             ${isAdmin() ? `<div class="mat-admin"><button class="link-btn" data-mat-edit="${m.id}">Изменить</button><button class="link-btn" data-mat-delete="${m.id}">Удалить</button></div>` : ''}
           </div>
         </article>`;
-    }).join('') : '<div class="empty">Ничего не найдено. Попробуйте другой запрос.</div>';
   }
 
-  function openMaterialForm(m) {
+  function openMaterialForm(m, preset) {
     const isNew = !m;
-    m = m || { id: 0, title: '', brand: '', category: '', description: '', course: '' };
+    m = m || Object.assign({ id: 0, title: '', brand: '', category: '', description: '', course: '' }, preset);
     modal.innerHTML = `
       <form id="material-form" class="modal__body">
         <h2>${isNew ? 'Новая презентация' : 'Материал'}</h2>
@@ -1307,22 +1311,33 @@
     const have = mine.map((m) => key(m.title));
     const cloud = mine.length >= (c.videos || []).length ? []
       : (c.videos || []).filter((v) => !have.some((h) => h === key(v.title) || h.startsWith(key(v.title) + ' ')));
-    if (!mine.length && !cloud.length) return '';
+    // Презентации и PDF, привязанные к блоку
+    const docs = (mats.list || []).filter((m) => !isVideo(m) && m.course === c.id);
+    if (!mine.length && !cloud.length && !docs.length) return '';
     return `<ul class="ortho-videos">
       ${mine.map((m) => `<li><button type="button" class="ortho-video" data-play="${m.id}"><span class="ortho-video__play" aria-hidden="true">▶</span><span>${esc(m.title)}<small>${esc(videoMeta(m))}</small></span></button></li>`).join('')}
+      ${docs.map((m) => `<li><a class="ortho-video ortho-video--doc${isPpt(m) && !m.pdf ? ' ortho-video--ppt' : ''}" ${matOpen(m)}><span class="ortho-video__play" aria-hidden="true">${isPpt(m) ? 'PPT' : 'PDF'}</span><span>${esc(m.title)}<small>${pptOnly(m) ? 'Презентация PowerPoint · скачать' : 'Презентация · открыть на сайте'}${m.brand ? ' · ' + esc(m.brand) : ''}</small></span></a></li>`).join('')}
       ${cloud.map((v) => `<li><a class="ortho-video ortho-video--cloud" href="${esc(v.url)}" target="_blank" rel="noopener"><span class="ortho-video__play" aria-hidden="true">▶</span><span>${esc(v.title)}<small>Видео Крейт · откроется на Облаке Mail.ru ↗</small></span></a></li>`).join('')}
     </ul>`;
   }
-  function fillOrthoVideos() {
+  // Все материалы по ортопедии: направление «Ортопедия», привязка к блоку или бренд «Крейт»
+  const isOrthoMat = (m) => m.category === 'ortho' || ORTHO.blocks.includes(m.course) || /крейт|kreit/i.test((m.brand || '') + ' ' + m.title);
+  function fillOrtho() {
     document.querySelectorAll('[data-ortho-videos]').forEach((box) => {
       const c = findCourse(box.dataset.orthoVideos);
       if (c) box.innerHTML = orthoVideosHtml(c);
     });
+    const grid = document.getElementById('ortho-mats');
+    if (grid && mats.list) {
+      const list = mats.list.filter(isOrthoMat);
+      grid.innerHTML = list.length ? list.map(matCard).join('')
+        : `<div class="empty">Материалов пока нет.${isAdmin() ? ' Нажмите «+ Добавить материал»: презентацию, PDF или видео.' : ''}</div>`;
+    }
   }
   function loadOrthoVideos() {
-    fillOrthoVideos();
+    fillOrtho();
     if (mode !== 'server') return;
-    call('materials').then((r) => { mats.list = r.materials; fillOrthoVideos(); }).catch(() => {});
+    call('materials').then((r) => { mats.list = r.materials; fillOrtho(); }).catch(() => {});
   }
 
   function viewOrtho() {
@@ -1336,7 +1351,7 @@
           <div>
             <span class="ortho-hero__kicker">Раздел по ассортименту Крейт</span>
             <h1>Ортопедия</h1>
-            <p>Корректоры осанки и корсеты, послеоперационные и грыжевые бандажи, изделия после мастэктомии, стельки, магнитотерапия и новинки. Четыре блока: в каждом уроки, обучающие видео поставщика и тест из 20 вопросов.</p>
+            <p>Всё по Крейту в одном месте: корректоры осанки и корсеты, послеоперационные и грыжевые бандажи, изделия после мастэктомии, стельки, магнитотерапия и новинки. Четыре блока — в каждом уроки, видео и презентации поставщика и тест из 20 вопросов; ниже — все материалы Крейт.</p>
           </div>
           <aside class="ortho-hero__stat">
             <b>${passed} из ${blocks.length}</b><span>${plural(passed, 'блок сдан', 'блока сдано', 'блоков сдано')}</span>
@@ -1365,6 +1380,12 @@
           </article>`;
           }).join('')}
         </div>
+        ${mode === 'server' ? `<section class="ortho-mats">
+          <div class="section__head"><div><h2 style="margin:0">Материалы Крейт</h2><p class="muted small" style="margin:4px 0 0">Презентации, PDF и обучающие видео по ортопедии.</p></div>
+            ${isAdmin() ? '<button class="btn btn--primary btn--sm" data-ortho-new>+ Добавить материал</button>' : ''}</div>
+          ${isAdmin() ? '<p class="muted small">Чтобы материал появился внутри блока, при добавлении выберите блок в поле «Курс с тестом по этой теме». Направление «Ортопедия» уже выбрано.</p>' : ''}
+          <div class="mat-grid" id="ortho-mats"><p class="muted">Загружаем материалы…</p></div>
+        </section>` : ''}
         <section class="ortho-news">
           <h2>Новинки Крейт</h2>
           <ul>${(ORTHO.novelties || []).map((n) => `<li>${esc(n)}</li>`).join('')}</ul>
@@ -2335,6 +2356,7 @@
       return;
     }
     if (t.hasAttribute('data-mat-new')) { openMaterialForm(null); return; }
+    if (t.hasAttribute('data-ortho-new')) { openMaterialForm(null, { category: 'ortho', brand: 'Крейт' }); return; }
     if (t.dataset.matEdit) { openMaterialForm(mats.list.find((m) => m.id === Number(t.dataset.matEdit))); return; }
     if (t.dataset.matDelete) {
       const m = mats.list.find((x) => x.id === Number(t.dataset.matDelete));
