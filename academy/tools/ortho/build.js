@@ -10,6 +10,13 @@ const root = path.join(dir, '..', '..');
 const ORTHO = [];
 fs.readdirSync(dir).filter((f) => /^\d.*\.js$/.test(f)).sort()
   .forEach((f) => vm.runInNewContext(fs.readFileSync(path.join(dir, f), 'utf8'), { ORTHO }, { filename: f }));
+// Конспекты обучающих видео Крейт (tools/ortho/notes/*.js): NOTES.push({ id, block, title, video, html })
+const NOTES = [];
+const notesDir = path.join(dir, 'notes');
+if (fs.existsSync(notesDir)) {
+  fs.readdirSync(notesDir).filter((f) => f.endsWith('.js')).sort()
+    .forEach((f) => vm.runInNewContext(fs.readFileSync(path.join(notesDir, f), 'utf8'), { NOTES }, { filename: f }));
+}
 
 // Варианты ответов перемешиваются один раз здесь (детерминированно), чтобы правильный не стоял всегда вторым
 function seeded(str) {
@@ -32,6 +39,9 @@ for (const c of ORTHO) {
   });
   c.lessons.forEach((l, i) => { if (!l.title || !l.html || !l.minutes || !Array.isArray(l.takeaways)) { console.error(`${c.id}: урок ${i + 1} оформлен неверно`); errors++; } });
 }
+NOTES.forEach((n) => {
+  if (!n.id || !n.title || !n.html || !ORTHO.some((c) => c.id === n.block)) { console.error(`Конспект ${n.id || '?'}: нет id, названия, текста или неверный блок`); errors++; }
+});
 if (errors) process.exit(1);
 
 const META = {
@@ -46,9 +56,9 @@ const out = `// Сгенерировано tools/ortho/build.js из tools/ortho
 (function () {
   window.CATEGORIES.ortho = 'Ортопедия';
   const BLOCKS = ${JSON.stringify(ORTHO, null, 1)};
-  window.ORTHO = Object.assign(${JSON.stringify(META)}, { blocks: BLOCKS.map((c) => c.id) });
+  window.ORTHO = Object.assign(${JSON.stringify(META)}, { blocks: BLOCKS.map((c) => c.id), notes: ${JSON.stringify(NOTES, null, 1)} });
   BLOCKS.forEach((c) => window.COURSES.push(c));
 })();
 `;
 fs.writeFileSync(path.join(root, 'js/data-ortho.js'), out);
-console.log('js/data-ortho.js: ' + ORTHO.map((c) => `${c.id} (${c.lessons.length} ур., ${c.quiz.length} вопр.)`).join(', '));
+console.log('js/data-ortho.js: ' + ORTHO.map((c) => `${c.id} (${c.lessons.length} ур., ${c.quiz.length} вопр.)`).join(', ') + `; конспектов видео: ${NOTES.length}`);

@@ -1230,3 +1230,11 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 .ortho-video--doc .ortho-video__play { background: #1f4a6b; font: 700 .62rem var(--font-head); letter-spacing: .04em; }
 .ortho-video--ppt .ortho-video__play { background: #c43e1c; }
 .conv-steps { margin: 4px 0 12px; padding-left: 18px; } .conv-steps li { margin: 3px 0; }
+.ortho-sub { margin: 18px 0 10px; font-size: 1rem; }
+.ortho-notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.ortho-note { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--heading); text-decoration: none; }
+.ortho-note:hover { border-color: var(--accent); }
+.ortho-note small { color: var(--muted); }
+.ortho-note__tag { align-self: flex-start; display: inline-block; padding: 2px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font: 700 .7rem var(--font-head); letter-spacing: .06em; text-transform: uppercase; }
+.ortho-video--note .ortho-video__play { background: #6b4fa3; font: 700 .7rem var(--font-head); }
+.crumbs { overflow-wrap: anywhere; }
