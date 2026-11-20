@@ -295,7 +295,7 @@
     return `<a class="today-card today-full ortho-promo" href="#/ortho">
       <span class="ortho-promo__icon" aria-hidden="true">🦴</span>
       <span><b>${passed ? 'Ортопедия: продолжите обучение' : 'Новый раздел: Ортопедия'}</b>
-      <small>Корсеты, бандажи, изделия после мастэктомии, стельки и магнитотерапия Крейт · 4 блока по 20 вопросов · сдано ${passed} из ${blocks.length}</small></span>
+      <small>Корсеты, бандажи, изделия после мастэктомии, стельки, магнитотерапия и компрессионный трикотаж Крейт · ${blocks.length} ${plural(blocks.length, 'блок', 'блока', 'блоков')} по 20 вопросов · сдано ${passed} из ${blocks.length}</small></span>
       <span class="ortho-promo__go" aria-hidden="true">→</span></a>`;
   }
 
@@ -1308,9 +1308,11 @@
     const mine = (mats.list || []).filter((m) => isVideo(m) && m.course === c.id);
     // Презентации и PDF, привязанные к блоку
     const docs = (mats.list || []).filter((m) => !isVideo(m) && m.course === c.id);
-    if (!mine.length && !docs.length) return '';
+    const notes = (ORTHO.notes || []).filter((n) => n.block === c.id);
+    if (!mine.length && !docs.length && !notes.length) return '';
     return `<ul class="ortho-videos">
       ${mine.map((m) => `<li><button type="button" class="ortho-video" data-play="${m.id}"><span class="ortho-video__play" aria-hidden="true">▶</span><span>${esc(m.title)}<small>${esc(videoMeta(m))}</small></span></button></li>`).join('')}
+      ${notes.map((n) => `<li><a class="ortho-video ortho-video--note" href="#/ortho/note/${n.id}"><span class="ortho-video__play" aria-hidden="true">Аа</span><span>${esc(n.title)}<small>Конспект видео Крейт · читать</small></span></a></li>`).join('')}
       ${docs.map((m) => `<li><a class="ortho-video ortho-video--doc${isPpt(m) && !m.pdf ? ' ortho-video--ppt' : ''}" ${matOpen(m)}><span class="ortho-video__play" aria-hidden="true">${isPpt(m) ? 'PPT' : 'PDF'}</span><span>${esc(m.title)}<small>${pptOnly(m) ? 'Презентация PowerPoint · скачать' : 'Презентация · открыть на сайте'}${m.brand ? ' · ' + esc(m.brand) : ''}</small></span></a></li>`).join('')}
     </ul>`;
   }
@@ -1338,6 +1340,22 @@
     call('materials').then((r) => { mats.list = r.materials; fillOrtho(); }).catch(() => {});
   }
 
+  // Конспект обучающего видео Крейт
+  function viewOrthoNote(id) {
+    const n = (ORTHO.notes || []).find((x) => x.id === id);
+    if (!n) return viewNotFound();
+    const b = findCourse(n.block);
+    return `
+      <div class="wrap narrow">
+        <div class="crumbs"><a href="#/">Главная</a> / <a href="#/ortho">Ортопедия</a>${b ? ` / <a href="#/course/${b.id}">${esc(orthoName(b))}</a>` : ''}</div>
+        <span class="ortho-note__tag">Конспект видео Крейт</span>
+        <h1>${esc(n.title)}</h1>
+        ${n.video ? `<p class="muted small">По видеоролику «${esc(n.video)}». Конспект составлен по расшифровке речи; при расхождении с инструкцией изделия ориентируйтесь на инструкцию.</p>` : ''}
+        <article class="lesson">${n.html}</article>
+        <div class="btn-row" style="margin-top:24px">${b ? `<a class="btn btn--primary" href="#/course/${b.id}">К блоку «${esc(orthoName(b))}»</a><a class="btn btn--ghost" href="#/quiz/${b.id}">Тест по блоку</a>` : ''}<a class="btn btn--ghost" href="#/ortho">Все материалы Крейт</a></div>
+      </div>`;
+  }
+
   function viewOrtho() {
     const blocks = orthoBlocks();
     const passed = blocks.filter(isPassed).length;
@@ -1349,7 +1367,7 @@
           <div>
             <span class="ortho-hero__kicker">Раздел по ассортименту Крейт</span>
             <h1>Ортопедия</h1>
-            <p>Всё по Крейту в одном месте: корректоры осанки и корсеты, послеоперационные и грыжевые бандажи, изделия после мастэктомии, стельки, магнитотерапия и новинки. Четыре блока — в каждом уроки, видео и презентации поставщика и тест из 20 вопросов; ниже — все материалы Крейт.</p>
+            <p>Всё по Крейту в одном месте: корректоры осанки и корсеты, послеоперационные и грыжевые бандажи, изделия после мастэктомии, стельки, магнитотерапия, компрессионный трикотаж и новинки. ${blocks.length} ${plural(blocks.length, 'блок', 'блока', 'блоков')} — в каждом уроки, видео и презентации поставщика и тест из 20 вопросов; ниже — все материалы Крейт.</p>
           </div>
           <aside class="ortho-hero__stat">
             <b>${passed} из ${blocks.length}</b><span>${plural(passed, 'блок сдан', 'блока сдано', 'блоков сдано')}</span>
@@ -1382,6 +1400,9 @@
           <div class="section__head"><div><h2 style="margin:0">Материалы Крейт</h2><p class="muted small" style="margin:4px 0 0">Презентации, PDF и обучающие видео по ортопедии.</p></div>
             ${isAdmin() ? '<button class="btn btn--primary btn--sm" data-ortho-new>+ Добавить материал</button>' : ''}</div>
           ${isAdmin() ? '<p class="muted small">Чтобы материал появился внутри блока, при добавлении выберите блок в поле «Курс с тестом по этой теме». Направление «Ортопедия» уже выбрано.</p>' : ''}
+          ${(ORTHO.notes || []).length ? `<h3 class="ortho-sub">Конспекты обучающих видео</h3>
+          <div class="ortho-notes">${ORTHO.notes.map((n) => { const b = findCourse(n.block); return `<a class="ortho-note" href="#/ortho/note/${n.id}"><span class="ortho-note__tag">Конспект</span><b>${esc(n.title)}</b><small>${b ? esc(orthoName(b)) : ''}</small></a>`; }).join('')}</div>
+          <h3 class="ortho-sub">Презентации и видео</h3>` : ''}
           <div class="mat-grid" id="ortho-mats"><p class="muted">Загружаем материалы…</p></div>
         </section>` : ''}
         <section class="ortho-news">
@@ -2246,6 +2267,7 @@
     else if (page === 'login' && mode === 'server') html = viewLogin();
     else if (page === 'register' && mode === 'server' && selfRegister) html = viewRegister();
     else if (page === 'courses') html = viewCourses();
+    else if (page === 'ortho' && id === 'note') html = viewOrthoNote(decodeURIComponent(n || ''));
     else if (page === 'ortho') html = viewOrtho();
     else if (page === 'law') { html = viewLaw({ buh: 'acc', pharm: 'pharm', local: 'local' }[id] || null); }
     else if (page === 'team' && teamReady()) html = viewTeam();
@@ -2269,7 +2291,7 @@
     if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
     if (page === 'ortho' || (page === 'course' && isOrtho(c))) loadOrthoVideos();
-    if (page === 'lesson') labelLessonTables();
+    if (page === 'lesson' || (page === 'ortho' && id === 'note')) labelLessonTables();
     if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
     if (page === 'events' && mode === 'server') { if (evs.data) renderEvents(); loadEvents(); }
     if (page === 'profile' && mode === 'server') renderTgPanel();
