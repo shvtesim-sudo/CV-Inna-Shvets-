@@ -1473,7 +1473,7 @@
             <a class="btn btn--primary" href="${next.href}">${next.label}</a>
           </aside>
         </div>
-        ${isOrtho(c) ? `<section class="ortho-course-media" hidden><h2>Видео и презентации</h2><div data-ortho-videos="${c.id}"></div></section>` : ''}
+        ${mode === 'server' ? `<section class="ortho-course-media" hidden><h2>Видео и презентации</h2><div data-ortho-videos="${c.id}"></div></section>` : ''}
         <h2>Программа курса</h2>
         <ol class="lesson-list">
           ${lessons}
@@ -2292,7 +2292,7 @@
     if (!page) { startPillars(); if (mode === 'server' && user) loadTodayExtras(); }
     if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
-    if (page === 'ortho' || (page === 'course' && isOrtho(c))) loadOrthoVideos();
+    if (page === 'ortho' || (page === 'course' && c)) loadOrthoVideos();
     if (page === 'lesson' || (page === 'ortho' && id === 'note')) labelLessonTables();
     if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
     if (page === 'events' && mode === 'server') { if (evs.data) renderEvents(); loadEvents(); }
