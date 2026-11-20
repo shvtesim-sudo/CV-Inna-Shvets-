@@ -503,6 +503,9 @@ function material_type(string $name): string
     if (in_array($ext, ['pptx', 'ppsx', 'potx'], true)) {
         return 'pptx';
     }
+    if (in_array($ext, ['mp4', 'm4v', 'mov', 'webm'], true)) {
+        return 'video';
+    }
     return in_array($ext, ['ppt', 'pps'], true) ? 'ppt' : 'pdf';
 }
 
@@ -514,6 +517,10 @@ function material_magic(string $data): string
     }
     if (substr($data, 0, 4) === "PK\x03\x04") {
         return 'pptx';
+    }
+    // MP4 и MOV: атом ftyp (или moov/mdat/wide/free в старых MOV) по смещению 4; WebM: сигнатура EBML
+    if (in_array(substr($data, 4, 4), ['ftyp', 'moov', 'mdat', 'wide', 'free'], true) || substr($data, 0, 4) === "\x1A\x45\xDF\xA3") {
+        return 'video';
     }
     return substr($data, 0, 8) === "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" ? 'ppt' : '';
 }
@@ -528,17 +535,40 @@ function conv_key_ok(): bool
     return strlen($key) >= 32 && hash_equals($key, $got);
 }
 
-// Отдать файл из частей в базе — по одной части за раз, не держа весь файл в памяти
-function stream_upload(string $upload): void
+const CHUNK_SIZE = 524288; // 512 КБ — размер части при загрузке (js/app.js, tools/convert-materials.py)
+
+// Отдать файл из частей в базе — по одной части за раз, не держа весь файл в памяти.
+// $from/$to — диапазон байтов (включительно) для перемотки видео; части загружаются по CHUNK_SIZE.
+function stream_upload(string $upload, int $from = 0, int $to = -1): void
 {
-    for ($i = 0;; $i++) {
+    $i = intdiv($from, CHUNK_SIZE);
+    $skip = $from - $i * CHUNK_SIZE;
+    $left = $to < 0 ? PHP_INT_MAX : $to - $from + 1;
+    for (; $left > 0; $i++) {
         $v = q('SELECT data FROM material_chunks WHERE upload = ? AND idx = ?', [$upload, $i])->fetchColumn();
         if ($v === false) {
             break;
         }
-        echo chunk_data($v);
+        $part = chunk_data($v);
+        if ($skip) {
+            $part = substr($part, $skip);
+            $skip = 0;
+        }
+        if (strlen($part) > $left) {
+            $part = substr($part, 0, $left);
+        }
+        $left -= strlen($part);
+        echo $part;
         flush();
+        if (connection_aborted()) {
+            break;
+        }
     }
+}
+
+function is_ppt(string $type): bool
+{
+    return $type === 'pptx' || $type === 'ppt';
 }
 
 function upload_size(string $upload): int
@@ -556,9 +586,9 @@ function material_row(array $r): array
     return [
         'type' => $type,
         // Для PowerPoint: есть ли готовая PDF-копия для просмотра и идёт ли ещё её подготовка
-        'pdf' => $type !== 'pdf' && !empty($r['pdf']),
+        'pdf' => is_ppt($type) && !empty($r['pdf']),
         'pdfSize' => (int)($r['pdf_size'] ?? 0),
-        'converting' => $type !== 'pdf' && empty($r['pdf']) && (int)($r['conv_tries'] ?? 0) < 3,
+        'converting' => is_ppt($type) && empty($r['pdf']) && (int)($r['conv_tries'] ?? 0) < 3,
         'id' => (int)$r['id'], 'title' => $r['title'], 'brand' => $r['brand'], 'category' => $r['category'],
         'description' => (string)$r['description'], 'course' => $r['course_id'], 'size' => (int)$r['size'],
         'added' => strtotime($r['created_at'] . ' UTC') * 1000,

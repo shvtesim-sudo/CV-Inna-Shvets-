@@ -26,4 +26,8 @@ return [
   'siddhayu_natures_only' => ['title' => 'Siddhayu и Natures Only', 'lessons' => 1, 'answers' => [1, 0, 1, 0, 1, 2, 0, 1, 0, 0, 1, 0, 2, 0, 0, 0, 1, 1, 0, 0], 'legacy' => 'Siddhayu и Natures Only'],
   'solution_selling_vivafarm' => ['title' => 'Solution Selling и архитектура решений VivaFarm', 'lessons' => 1, 'answers' => [1, 0, 2, 3, 0, 3, 2, 1, 2, 3, 0, 3, 0, 1, 2, 1, 0, 1, 2, 3], 'legacy' => 'Solution Selling и архитектура решений VivaFarm'],
   'tylol_anzibel' => ['title' => 'Один день из жизни фармацевта: Tylol и Anzibel', 'lessons' => 1, 'answers' => [1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1, 0, 2, 2, 3, 2, 1, 0, 2, 1], 'legacy' => 'Один день из жизни фармацевта: Tylol и Anzibel'],
+  'ortho_spine' => ['title' => 'Ортопедия. Блок 1: спина и осанка — корректоры, реклинаторы, корсеты', 'lessons' => 4, 'answers' => [1, 2, 1, 0, 1, 2, 1, 0, 0, 0, 2, 3, 0, 0, 2, 0, 1, 1, 3, 3]],
+  'ortho_postop' => ['title' => 'Ортопедия. Блок 2: послеоперационные и грыжевые бандажи', 'lessons' => 4, 'answers' => [0, 2, 2, 3, 3, 0, 1, 0, 2, 3, 1, 0, 3, 3, 3, 3, 1, 0, 1, 0]],
+  'ortho_mastectomy' => ['title' => 'Ортопедия. Блок 3: изделия после мастэктомии и маммопластики', 'lessons' => 4, 'answers' => [0, 1, 3, 3, 0, 2, 1, 0, 0, 1, 2, 0, 3, 3, 3, 3, 0, 1, 3, 3]],
+  'ortho_foot' => ['title' => 'Ортопедия. Блок 4: стопа, магнитотерапия и новинки', 'lessons' => 4, 'answers' => [2, 1, 3, 3, 3, 3, 1, 1, 1, 0, 3, 3, 0, 0, 0, 0, 1, 1, 1, 1]],
 ];

@@ -118,27 +118,53 @@ if ($action === 'materials') {
 }
 if ($action === 'material_file') {
     require_user();
+    // Сессию отпускаем сразу: видео грузится долго и параллельными запросами, а сессия блокирует другие запросы
+    session_write_close();
     $m = q('SELECT * FROM materials WHERE id = ?', [(int)($_GET['id'] ?? 0)])->fetch();
     if (!$m) {
         fail(404, 'not_found', 'Материал не найден.');
     }
     $type = material_type((string)$m['original_name']);
     // У презентации PowerPoint по умолчанию отдаём PDF-копию (если готова), с orig=1 — исходный файл
-    $usePdf = $type !== 'pdf' && !empty($m['pdf']) && empty($_GET['orig']);
+    $usePdf = is_ppt($type) && !empty($m['pdf']) && empty($_GET['orig']);
     $kind = $usePdf ? 'pdf' : $type;
-    $ext = $kind === 'pdf' ? '.pdf' : '.' . strtolower(pathinfo((string)$m['original_name'], PATHINFO_EXTENSION));
+    $origExt = strtolower(pathinfo((string)$m['original_name'], PATHINFO_EXTENSION));
+    $ext = $kind === 'pdf' ? '.pdf' : '.' . $origExt;
     $name = preg_replace('/[^\p{L}\p{N} ._-]+/u', '', $m['title']) ?: 'material';
     $ascii = preg_replace('/[^A-Za-z0-9._-]+/', '_', pathinfo((string)$m['original_name'], PATHINFO_FILENAME));
     $ascii = preg_match('/[A-Za-z0-9]{2}/', $ascii) ? $ascii . $ext : 'vivaacademy-material-' . (int)$m['id'] . $ext;
-    $mime = ['pdf' => 'application/pdf', 'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'ppt' => 'application/vnd.ms-powerpoint'];
+    $videoMime = ['mov' => 'video/quicktime', 'webm' => 'video/webm'];
+    $mime = ['pdf' => 'application/pdf', 'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+             'ppt' => 'application/vnd.ms-powerpoint', 'video' => $videoMime[$origExt] ?? 'video/mp4'];
+    $size = (int)($usePdf ? $m['pdf_size'] : $m['size']);
+    @set_time_limit(0);
     header('Content-Type: ' . $mime[$kind]);
-    header('Content-Length: ' . (int)($usePdf ? $m['pdf_size'] : $m['size']));
     header('Cache-Control: private, max-age=86400');
     header('X-Content-Type-Options: nosniff');
-    // PowerPoint браузер показать не может — всегда отдаём как скачивание
-    header('Content-Disposition: ' . (!empty($_GET['dl']) || $kind !== 'pdf' ? 'attachment' : 'inline')
+    header('Accept-Ranges: bytes');
+    // PowerPoint браузер показать не может — всегда отдаём как скачивание; PDF и видео — смотреть на сайте
+    header('Content-Disposition: ' . (!empty($_GET['dl']) || is_ppt($kind) ? 'attachment' : 'inline')
         . '; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($name . $ext));
-    stream_upload($usePdf ? $m['pdf'] : $m['file']);
+    // Перемотка видео: браузер просит часть файла (Range: bytes=начало-конец)
+    $from = 0;
+    $to = $size - 1;
+    if (preg_match('/^bytes=(\d*)-(\d*)$/', (string)($_SERVER['HTTP_RANGE'] ?? ''), $rg) && ($rg[1] !== '' || $rg[2] !== '')) {
+        if ($rg[1] === '') {
+            $from = max(0, $size - (int)$rg[2]);
+        } else {
+            $from = (int)$rg[1];
+            $to = $rg[2] === '' ? $size - 1 : min((int)$rg[2], $size - 1);
+        }
+        if ($from > $to || $from >= $size) {
+            http_response_code(416);
+            header('Content-Range: bytes */' . $size);
+            exit;
+        }
+        http_response_code(206);
+        header('Content-Range: bytes ' . $from . '-' . $to . '/' . $size);
+    }
+    header('Content-Length: ' . ($to - $from + 1));
+    stream_upload($usePdf ? $m['pdf'] : $m['file'], $from, $to);
     exit;
 }
 
@@ -149,7 +175,7 @@ if (strpos($action, 'conv_') === 0) {
     }
     if ($action === 'conv_next') {
         foreach (q('SELECT id, original_name, size, conv_tries FROM materials WHERE pdf IS NULL AND conv_tries < 3 ORDER BY id') as $r) {
-            if (material_type((string)$r['original_name']) !== 'pdf') {
+            if (is_ppt(material_type((string)$r['original_name']))) {
                 json_out(['material' => ['id' => (int)$r['id'], 'name' => $r['original_name'], 'size' => (int)$r['size']]]);
             }
         }
@@ -620,18 +646,19 @@ switch ($action) {
         }
         exit;
 
-    // Загрузка PDF или PowerPoint частями (обходит ограничение хостинга на размер одного запроса)
+    // Загрузка PDF, PowerPoint или видео частями (обходит ограничение хостинга на размер одного запроса)
     case 'admin_material_chunk':
         require_admin();
         $token = preg_replace('/[^a-f0-9]/', '', str_in('upload', 64));
         $index = (int)(input()['index'] ?? -1);
         $data = base64_decode((string)(input()['data'] ?? ''), true);
-        if (strlen($token) !== 32 || $index < 0 || $index > 300 || $data === false || $data === '' || strlen($data) > 1024 * 1024) {
+        // До 2000 частей по 512 КБ — около 1 ГБ (видео)
+        if (strlen($token) !== 32 || $index < 0 || $index > 2000 || $data === false || $data === '' || strlen($data) > 1024 * 1024) {
             fail(422, 'invalid', 'Некорректная часть файла.');
         }
         if ($index === 0) {
             if (material_magic($data) === '') {
-                fail(422, 'invalid', 'Можно загрузить PDF или презентацию PowerPoint (.pptx, .ppt).');
+                fail(422, 'invalid', 'Можно загрузить PDF, презентацию PowerPoint (.pptx, .ppt) или видео (.mp4).');
             }
             q('DELETE FROM material_chunks WHERE upload = ?', [$token]);
         } elseif ((int)q('SELECT COUNT(*) FROM material_chunks WHERE upload = ?', [$token])->fetchColumn() !== $index) {
@@ -656,7 +683,7 @@ switch ($action) {
         $first = q('SELECT data FROM material_chunks WHERE upload = ? AND idx = 0', [$token])->fetchColumn();
         $name = str_in('name', 200);
         if ($first !== false && material_magic(chunk_data($first)) !== material_type($name)) {
-            fail(422, 'invalid', 'Расширение файла не совпадает с содержимым. Загрузите PDF, .pptx или .ppt.');
+            fail(422, 'invalid', 'Расширение файла не совпадает с содержимым. Загрузите PDF, .pptx, .ppt или .mp4.');
         }
         $size = strlen($token) === 32 ? upload_size($token) : 0;
         if (!$size) {

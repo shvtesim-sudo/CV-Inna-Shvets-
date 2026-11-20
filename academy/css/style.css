@@ -1169,3 +1169,57 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 .mat-cover--ppt .mat-cover__type { background: #c43e1c; color: #fff; }
 .mat-orig { margin: 4px 0 0; }
 .mat-orig a { color: var(--muted, #667085); }
+
+/* ── Раздел «Ортопедия» ── */
+.ortho-hero { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: end; padding: 28px; margin: 8px 0 24px;
+  border-radius: calc(var(--radius) * 2); background: linear-gradient(120deg, #17324d 0%, #1f4a6b 55%, #2a7563 100%); color: #fff; }
+.ortho-hero h1 { color: #fff; margin: 6px 0 10px; }
+.ortho-hero p { margin: 0; max-width: 720px; color: rgba(255,255,255,.88); }
+.ortho-hero__kicker { font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.75); }
+.ortho-hero__stat { min-width: 180px; padding: 14px 16px; border-radius: var(--radius); background: rgba(255,255,255,.12); }
+.ortho-hero__stat b { display: block; font: 700 1.6rem var(--font-head); }
+.ortho-hero__stat span { display: block; margin-bottom: 10px; font-size: .85rem; color: rgba(255,255,255,.8); }
+.ortho-blocks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.ortho-block { display: flex; flex-direction: column; gap: 10px; padding: 20px; border: 1px solid var(--border); border-radius: calc(var(--radius) * 1.5);
+  background: var(--surface); box-shadow: var(--shadow); min-width: 0; }
+.ortho-block__head { display: flex; align-items: center; gap: 10px; }
+.ortho-block__icon { font-size: 1.6rem; }
+.ortho-block__num { font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.ortho-block__head .badge { margin-left: auto; }
+.ortho-block h2 { margin: 0; font-size: 1.15rem; }
+.ortho-block h2 a { color: var(--heading); text-decoration: none; }
+.ortho-block h2 a:hover { text-decoration: underline; }
+.ortho-block p { margin: 0; }
+.ortho-lessons { margin: 0; padding-left: 20px; font-size: .92rem; }
+.ortho-lessons li { margin: 3px 0; }
+.ortho-lessons li.done { color: var(--muted); }
+.ortho-lessons li.done::marker { content: '✓  '; color: var(--accent); }
+.ortho-lessons a { color: inherit; }
+.ortho-block__foot { margin-top: auto; display: grid; gap: 10px; }
+.ortho-videos { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 8px; }
+.ortho-video { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-2); color: var(--heading); text-decoration: none; text-align: left; font: inherit; cursor: pointer; }
+.ortho-video:hover { border-color: var(--accent); }
+.ortho-video small { display: block; color: var(--muted); font-size: .78rem; }
+.ortho-video__play { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #fff; font-size: .8rem; }
+.ortho-video--cloud .ortho-video__play { background: #1f4a6b; }
+.ortho-news { margin: 24px 0 12px; padding: 18px 20px; border-radius: calc(var(--radius) * 1.5); background: var(--accent-soft); }
+.ortho-news h2 { margin: 0 0 8px; font-size: 1.1rem; }
+.ortho-news ul { margin: 0 0 12px; padding-left: 20px; }
+.ortho-promo { display: flex; align-items: center; gap: 14px; text-decoration: none; color: var(--heading);
+  background: linear-gradient(120deg, #17324d 0%, #1f4a6b 60%, #2a7563 100%); color: #fff; }
+.ortho-promo small { display: block; margin-top: 3px; color: rgba(255,255,255,.82); font-size: .82rem; }
+.ortho-promo__icon { font-size: 1.8rem; }
+.ortho-promo__go { margin-left: auto; font-size: 1.4rem; }
+@media (max-width: 760px) {
+  .ortho-hero { grid-template-columns: 1fr; padding: 20px; }
+  .ortho-blocks { grid-template-columns: 1fr; }
+}
+
+/* Видео в материалах */
+.mat-cover--video .mat-cover__type { background: var(--accent); color: #fff; }
+.mat-cover__play { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 52px; height: 52px;
+  border-radius: 50%; background: rgba(255,255,255,.22); color: #fff; font-size: 1.2rem; }
+.modal:has(.modal__body--video) { width: min(960px, 94vw); max-width: 94vw; }
+.modal__body--video { width: 100%; box-sizing: border-box; }
+.mat-video { display: block; width: 100%; max-height: 70vh; margin: 8px 0 14px; border-radius: var(--radius); background: #000; }
