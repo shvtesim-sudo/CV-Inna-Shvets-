@@ -9,6 +9,7 @@ const sandbox = { window: {} };
 vm.runInNewContext(fs.readFileSync(path.join(root, 'js/data.js'), 'utf8'), sandbox);
 vm.runInNewContext(fs.readFileSync(path.join(root, 'js/data-pro.js'), 'utf8'), sandbox);
 vm.runInNewContext(fs.readFileSync(path.join(root, 'js/data-viva.js'), 'utf8'), sandbox);
+vm.runInNewContext(fs.readFileSync(path.join(root, 'js/data-ortho.js'), 'utf8'), sandbox);
 
 const lines = sandbox.window.COURSES.map((c) => {
   const keys = c.quiz.map((q) => q.correct).join(', ');

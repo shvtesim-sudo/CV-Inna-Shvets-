@@ -287,6 +287,18 @@
   }
 
   // Главная для вошедшего сотрудника: что сделать сегодня
+  // Карточка раздела «Ортопедия» на главной — пока не сданы все четыре блока
+  function ORTHO_HOME() {
+    const blocks = (window.ORTHO ? window.ORTHO.blocks : []).map(findCourse).filter(Boolean);
+    if (!blocks.length || blocks.every(isPassed)) return '';
+    const passed = blocks.filter(isPassed).length;
+    return `<a class="today-card today-full ortho-promo" href="#/ortho">
+      <span class="ortho-promo__icon" aria-hidden="true">🦴</span>
+      <span><b>${passed ? 'Ортопедия: продолжите обучение' : 'Новый раздел: Ортопедия'}</b>
+      <small>Корсеты, бандажи, изделия после мастэктомии, стельки и магнитотерапия Крейт · 4 блока по 20 вопросов · сдано ${passed} из ${blocks.length}</small></span>
+      <span class="ortho-promo__go" aria-hidden="true">→</span></a>`;
+  }
+
   function viewToday() {
     const hour = Number(new Date().toLocaleString('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Europe/Chisinau' }));
     const greet = hour < 5 ? 'Доброй ночи' : hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер';
@@ -325,6 +337,7 @@
             </div>
             <div class="btn-row"><a class="btn btn--ghost btn--sm" href="#/profile">Мои сертификаты</a></div>
           </div>
+          ${ORTHO_HOME()}
           <section class="today-full" id="home-event" hidden></section>
           <div class="today-card today-full" id="home-mats" hidden></div>
           <div class="today-card today-full" id="install-card" hidden></div>
@@ -1101,10 +1114,32 @@
   let mats = { list: null, cat: 'all', q: '' };
   const matUrl = (m, dl, orig) => `${API}?action=material_file&id=${m.id}${dl ? '&dl=1' : ''}${orig ? '&orig=1' : ''}`;
   const isPpt = (m) => m.type === 'pptx' || m.type === 'ppt';
+  const isVideo = (m) => m.type === 'video';
   // PowerPoint без готовой PDF-копии можно только скачать; с копией — открыть в браузере, как PDF
   const pptOnly = (m) => isPpt(m) && !m.pdf;
-  const matType = (m) => (isPpt(m) ? 'PPT' : 'PDF');
-  const matOpen = (m) => (pptOnly(m) ? `href="${matUrl(m, true)}"` : `href="${matUrl(m)}" target="_blank" rel="noopener"`);
+  const matType = (m) => (isVideo(m) ? 'ВИДЕО' : isPpt(m) ? 'PPT' : 'PDF');
+  const matOpen = (m) => (isVideo(m) ? `href="${matUrl(m)}" data-play="${m.id}"`
+    : pptOnly(m) ? `href="${matUrl(m, true)}"` : `href="${matUrl(m)}" target="_blank" rel="noopener"`);
+
+  // Видео смотрим прямо на сайте, в окне поверх страницы
+  function openVideo(id) {
+    const m = (mats.list || []).find((x) => x.id === id);
+    if (!m) return;
+    modal.innerHTML = `
+      <div class="modal__body modal__body--video">
+        <h2>${esc(m.title)}</h2>
+        <video class="mat-video" src="${matUrl(m)}" controls autoplay playsinline preload="metadata"></video>
+        <div class="btn-row"><a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать видео (${fileSize(m.size)})</a><button type="button" class="btn btn--ghost btn--sm" data-close>Закрыть</button></div>
+      </div>`;
+    modal.addEventListener('close', () => { modal.innerHTML = ''; }, { once: true });
+    modal.showModal();
+  }
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-play]');
+    if (!a) return;
+    e.preventDefault();
+    openVideo(Number(a.dataset.play));
+  });
   const fileSize = (b) => b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} МБ` : `${Math.max(1, Math.round(b / 1024))} КБ`;
 
   function viewMaterials() {
@@ -1112,7 +1147,7 @@
       <div class="wrap">
         <div class="crumbs"><a href="#/">Главная</a> / Учебные материалы</div>
         <div class="section__head"><div><h1 style="margin:0">Учебные материалы</h1>
-          <p>Презентации брендов и тренингов в исходном виде. Откройте для просмотра на сайте или скачайте; у презентаций PowerPoint можно скачать и оригинал.</p></div>
+          <p>Презентации и обучающие видео брендов и тренингов в исходном виде. Откройте для просмотра на сайте или скачайте; у презентаций PowerPoint можно скачать и оригинал.</p></div>
           ${isAdmin() ? '<button class="btn btn--primary btn--sm" data-mat-new>+ Загрузить презентацию</button>' : ''}</div>
         <input class="search" id="mat-q" type="search" placeholder="Поиск: бренд, тема, продукт…" value="${esc(mats.q)}" aria-label="Поиск материалов">
         <div class="filters" id="mat-cats" role="group" aria-label="Направления"></div>
@@ -1155,7 +1190,8 @@
       const c = m.course && findCourse(m.course);
       return `
         <article class="mat-card">
-          <a class="mat-cover${isPpt(m) ? ' mat-cover--ppt' : ''}" ${matOpen(m)} aria-label="Открыть «${esc(m.title)}»">
+          <a class="mat-cover${isPpt(m) ? ' mat-cover--ppt' : ''}${isVideo(m) ? ' mat-cover--video' : ''}" ${matOpen(m)} aria-label="Открыть «${esc(m.title)}»">
+            ${isVideo(m) ? '<span class="mat-cover__play" aria-hidden="true">▶</span>' : ''}
             <span class="mat-cover__type">${matType(m)}</span><span class="mat-cover__brand">${esc(m.brand || CATEGORIES[m.category] || 'Вивафарм')}</span>
           </a>
           <div class="mat-body">
@@ -1163,7 +1199,8 @@
             <h3>${esc(m.title)}</h3>
             ${m.description ? `<p class="muted small">${esc(m.description)}</p>` : ''}
             <div class="btn-row">
-              ${pptOnly(m) ? `<a class="btn btn--primary btn--sm" href="${matUrl(m, true)}" title="Откроется в PowerPoint; на телефоне — в приложении PowerPoint или Google Презентации">Скачать PowerPoint</a>`
+              ${isVideo(m) ? `<button type="button" class="btn btn--primary btn--sm" data-play="${m.id}">▶ Смотреть</button>
+              <a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать</a>` : pptOnly(m) ? `<a class="btn btn--primary btn--sm" href="${matUrl(m, true)}" title="Откроется в PowerPoint; на телефоне — в приложении PowerPoint или Google Презентации">Скачать PowerPoint</a>`
                 : `<a class="btn btn--primary btn--sm" href="${matUrl(m)}" target="_blank" rel="noopener">Открыть</a>
               <a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать</a>`}
               ${c ? `<a class="btn btn--ghost btn--sm" href="#/course/${c.id}">${isPassed(c) ? 'Курс пройден ✓' : 'Тест по теме'}</a>` : ''}
@@ -1183,8 +1220,8 @@
       <form id="material-form" class="modal__body">
         <h2>${isNew ? 'Новая презентация' : 'Материал'}</h2>
         <input type="hidden" name="id" value="${m.id}">
-        ${isNew ? `<div class="field"><label for="mat-file">Файл PDF или PowerPoint</label><input id="mat-file" name="file" type="file" accept="application/pdf,.pdf,.pptx,.ppsx,.ppt,.pps,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint" required>
-          <p class="muted small">Файл загружается без изменений. Из презентации PowerPoint (.pptx, .ppt) сайт сам сделает PDF для просмотра — обычно в течение 15 минут; оригинал тоже можно будет скачать.</p></div>` : ''}
+        ${isNew ? `<div class="field"><label for="mat-file">Файл: PDF, PowerPoint или видео</label><input id="mat-file" name="file" type="file" accept="application/pdf,.pdf,.pptx,.ppsx,.ppt,.pps,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint,video/mp4,video/webm,video/quicktime,.mp4,.m4v,.mov,.webm" required>
+          <p class="muted small">Файл загружается без изменений. Из презентации PowerPoint (.pptx, .ppt) сайт сам сделает PDF для просмотра — обычно в течение 15 минут. Видео (.mp4, до 1 ГБ) смотрят прямо на сайте; чтобы видео появилось в разделе «Ортопедия», выберите ниже нужный блок. Большое видео загружается несколько минут — не закрывайте окно.</p></div>` : ''}
         <div class="field"><label for="mat-title">Название</label><input id="mat-title" name="title" required maxlength="200" value="${esc(m.title)}"></div>
         <div class="field-row">
           <div class="field"><label for="mat-brand">Бренд или автор</label><input id="mat-brand" name="brand" maxlength="120" value="${esc(m.brand)}" placeholder="например, Гельтек"></div>
@@ -1206,7 +1243,7 @@
     if (file) {
       file.addEventListener('change', () => {
         const t = modal.querySelector('#mat-title');
-        if (file.files[0] && !t.value) t.value = file.files[0].name.replace(/\.(pdf|pptx|ppsx|ppt|pps)$/i, '').replace(/\s*\(\d+\)$/, '').replace(/[_]+/g, ' ').trim();
+        if (file.files[0] && !t.value) t.value = file.files[0].name.replace(/\.(pdf|pptx|ppsx|ppt|pps|mp4|m4v|mov|webm)$/i, '').replace(/\s*\(\d+\)$/, '').replace(/[_]+/g, ' ').trim();
       });
     }
   }
@@ -1214,10 +1251,12 @@
   // Файл уходит на сервер частями по 512 КБ: так не мешают ограничения хостинга на размер запроса
   async function uploadPdf(file, onProgress) {
     const head = String.fromCharCode(...new Uint8Array(await file.slice(0, 8).arrayBuffer()));
-    const ext = (file.name.match(/\.([a-z]+)$/i) || ['', ''])[1].toLowerCase();
-    const kind = head.startsWith('%PDF-') ? 'pdf' : head.startsWith('PK\x03\x04') ? 'pptx' : head === '\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1' ? 'ppt' : '';
-    const want = { pdf: 'pdf', pptx: 'pptx', ppsx: 'pptx', potx: 'pptx', ppt: 'ppt', pps: 'ppt' }[ext];
-    if (!kind || kind !== want) throw new Error('Можно загрузить PDF или презентацию PowerPoint (.pptx, .ppt). Этот файл не подходит.');
+    const ext = (file.name.match(/\.([a-z0-9]+)$/i) || ['', ''])[1].toLowerCase();
+    const kind = head.startsWith('%PDF-') ? 'pdf' : head.startsWith('PK\x03\x04') ? 'pptx' : head === '\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1' ? 'ppt'
+      : (['ftyp', 'moov', 'mdat', 'wide', 'free'].includes(head.slice(4, 8)) || head.startsWith('\x1A\x45\xDF\xA3')) ? 'video' : '';
+    const want = { pdf: 'pdf', pptx: 'pptx', ppsx: 'pptx', potx: 'pptx', ppt: 'ppt', pps: 'ppt', mp4: 'video', m4v: 'video', mov: 'video', webm: 'video' }[ext];
+    if (!kind || kind !== want) throw new Error('Можно загрузить PDF, презентацию PowerPoint (.pptx, .ppt) или видео (.mp4). Этот файл не подходит.');
+    if (file.size > 1000 * 1048576) throw new Error(`Файл слишком большой (${fileSize(file.size)}). Максимум — 1 ГБ: сожмите видео или разделите его на части.`);
     const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
     const size = 512 * 1024;
     for (let i = 0, off = 0; off < file.size; i++, off += size) {
@@ -1228,6 +1267,83 @@
       onProgress(Math.min(100, Math.round(((off + buf.length) / file.size) * 100)));
     }
     return token;
+  }
+
+  /* ───────────── Раздел «Ортопедия» (блоки по ассортименту Крейт) ───────────── */
+  const ORTHO = window.ORTHO || { blocks: [] };
+  const orthoBlocks = () => ORTHO.blocks.map(findCourse).filter(Boolean);
+  const isOrtho = (c) => c && c.category === 'ortho';
+  const orthoName = (c) => { const t = c.title.replace(/^Ортопедия\. Блок \d+:\s*/, ''); return t.charAt(0).toUpperCase() + t.slice(1); };
+
+  // Видео блока: загруженные на сайт (материал с привязкой к блоку) смотрим здесь же, ролики Крейт — по ссылке на облако
+  function orthoVideosHtml(c) {
+    const mine = (mats.list || []).filter((m) => isVideo(m) && m.course === c.id);
+    const cloud = mine.length >= (c.videos || []).length ? [] : c.videos || [];
+    if (!mine.length && !cloud.length) return '';
+    return `<ul class="ortho-videos">
+      ${mine.map((m) => `<li><button type="button" class="ortho-video" data-play="${m.id}"><span class="ortho-video__play" aria-hidden="true">▶</span><span>${esc(m.title)}<small>Видео · ${fileSize(m.size)}</small></span></button></li>`).join('')}
+      ${cloud.map((v) => `<li><a class="ortho-video ortho-video--cloud" href="${esc(v.url)}" target="_blank" rel="noopener"><span class="ortho-video__play" aria-hidden="true">▶</span><span>${esc(v.title)}<small>Видео Крейт · откроется на Облаке Mail.ru ↗</small></span></a></li>`).join('')}
+    </ul>`;
+  }
+  function fillOrthoVideos() {
+    document.querySelectorAll('[data-ortho-videos]').forEach((box) => {
+      const c = findCourse(box.dataset.orthoVideos);
+      if (c) box.innerHTML = orthoVideosHtml(c);
+    });
+  }
+  function loadOrthoVideos() {
+    fillOrthoVideos();
+    if (mode !== 'server') return;
+    call('materials').then((r) => { mats.list = r.materials; fillOrthoVideos(); }).catch(() => {});
+  }
+
+  function viewOrtho() {
+    const blocks = orthoBlocks();
+    const passed = blocks.filter(isPassed).length;
+    const done = blocks.length ? Math.round((blocks.reduce((sum, c) => sum + courseProgress(c), 0)) / blocks.length) : 0;
+    return `
+      <div class="wrap">
+        <div class="crumbs"><a href="#/">Главная</a> / Ортопедия</div>
+        <section class="ortho-hero">
+          <div>
+            <span class="ortho-hero__kicker">Раздел по ассортименту Крейт</span>
+            <h1>Ортопедия</h1>
+            <p>Корректоры осанки и корсеты, послеоперационные и грыжевые бандажи, изделия после мастэктомии, стельки, магнитотерапия и новинки. Четыре блока: в каждом уроки, обучающие видео поставщика и тест из 20 вопросов.</p>
+          </div>
+          <aside class="ortho-hero__stat">
+            <b>${passed} из ${blocks.length}</b><span>${plural(passed, 'блок сдан', 'блока сдано', 'блоков сдано')}</span>
+            ${progressBar(done)}
+          </aside>
+        </section>
+        <div class="ortho-blocks">
+          ${blocks.map((c, i) => {
+            const next = nextStepFor(c);
+            const res = quizResult(c);
+            return `
+          <article class="ortho-block">
+            <div class="ortho-block__head"><span class="ortho-block__icon" aria-hidden="true">${c.icon}</span><span class="ortho-block__num">Блок ${i + 1}</span>${isPassed(c) ? '<span class="badge badge--done">сдан ✓</span>' : ''}</div>
+            <h2><a href="#/course/${c.id}">${esc(orthoName(c))}</a></h2>
+            <p class="muted small">${esc(c.short)}</p>
+            <ol class="ortho-lessons">${c.lessons.map((l, k) => `<li class="${isLessonDone(c, k) ? 'done' : ''}"><a href="#/lesson/${c.id}/${k + 1}">${esc(l.title)}</a></li>`).join('')}</ol>
+            <div data-ortho-videos="${c.id}">${orthoVideosHtml(c)}</div>
+            <div class="ortho-block__foot">
+              ${progressBar(courseProgress(c))}
+              <div class="btn-row">
+                <a class="btn btn--primary btn--sm" href="${next.href}">${next.label}</a>
+                <a class="btn btn--ghost btn--sm" href="#/quiz/${c.id}">${isPassed(c) ? 'Тест сдан ✓' : `Тест · ${c.quiz.length} вопросов`}</a>
+              </div>
+              ${res ? `<p class="muted small">Лучший результат: ${pct(res.best)}%</p>` : ''}
+            </div>
+          </article>`;
+          }).join('')}
+        </div>
+        <section class="ortho-news">
+          <h2>Новинки Крейт</h2>
+          <ul>${(ORTHO.novelties || []).map((n) => `<li>${esc(n)}</li>`).join('')}</ul>
+          <a class="btn btn--ghost btn--sm" href="#/lesson/ortho_foot/4">Что важно знать о новинках →</a>
+        </section>
+        <p class="muted small">Поставщик: ${esc(ORTHO.supplier || '')}. Каталог: <a href="${esc(ORTHO.site || '#')}" target="_blank" rel="noopener">kreitspb.ru ↗</a> · <a href="${esc(ORTHO.youtube || '#')}" target="_blank" rel="noopener">YouTube-канал Крейт ↗</a>. Материалы носят обучающий характер; показания и режим ношения изделия определяет врач.</p>
+      </div>`;
   }
 
   function viewCourses() {
@@ -1271,7 +1387,7 @@
       </li>`).join('');
     return `
       <div class="wrap">
-        <div class="crumbs"><a href="#/">Главная</a> / <a href="#/courses">Курсы</a> / ${esc(c.title)}</div>
+        <div class="crumbs"><a href="#/">Главная</a> / ${isOrtho(c) ? '<a href="#/ortho">Ортопедия</a>' : '<a href="#/courses">Курсы</a>'} / ${esc(c.title)}</div>
         <div class="course-head">
           <div>
             <div class="card__icon" aria-hidden="true">${c.icon}</div>
@@ -1287,6 +1403,7 @@
             <a class="btn btn--primary" href="${next.href}">${next.label}</a>
           </aside>
         </div>
+        ${c.videos ? `<h2>Обучающие видео</h2><div data-ortho-videos="${c.id}">${orthoVideosHtml(c)}</div>` : ''}
         <h2>Программа курса</h2>
         <ol class="lesson-list">
           ${lessons}
@@ -2059,6 +2176,7 @@
     else if (page === 'login' && mode === 'server') html = viewLogin();
     else if (page === 'register' && mode === 'server' && selfRegister) html = viewRegister();
     else if (page === 'courses') html = viewCourses();
+    else if (page === 'ortho') html = viewOrtho();
     else if (page === 'law') { html = viewLaw({ buh: 'acc', pharm: 'pharm', local: 'local' }[id] || null); }
     else if (page === 'team' && teamReady()) html = viewTeam();
     else if (page === 'profile') html = viewProfile();
@@ -2068,9 +2186,9 @@
     else if (page === 'admin' && canViewAdmin()) html = viewAdmin();
     else if (page === 'verify' && id) html = viewVerify(decodeURIComponent(id));
     else if (page === 'xcert' && id) { html = viewExtCertificate(decodeURIComponent(id)); nav = 'profile'; }
-    else if (c && page === 'course') { html = viewCourse(c); nav = 'courses'; }
-    else if (c && page === 'lesson') { html = viewLesson(c, parseInt(n, 10)); nav = 'courses'; }
-    else if (c && page === 'quiz') { html = viewQuiz(c); nav = 'courses'; }
+    else if (c && page === 'course') { html = viewCourse(c); nav = isOrtho(c) ? 'ortho' : 'courses'; }
+    else if (c && page === 'lesson') { html = viewLesson(c, parseInt(n, 10)); nav = isOrtho(c) ? 'ortho' : 'courses'; }
+    else if (c && page === 'quiz') { html = viewQuiz(c); nav = isOrtho(c) ? 'ortho' : 'courses'; }
     else if (c && page === 'certificate') { html = viewCertificate(c); nav = 'profile'; }
     else html = viewNotFound();
 
@@ -2080,6 +2198,7 @@
     if (!page) { startPillars(); if (mode === 'server' && user) loadTodayExtras(); }
     if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
+    if (page === 'ortho' || (page === 'course' && c && c.videos)) loadOrthoVideos();
     if (page === 'lesson') labelLessonTables();
     if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
     if (page === 'events' && mode === 'server') { if (evs.data) renderEvents(); loadEvents(); }
@@ -2410,7 +2529,7 @@
         };
         if (!data.id) {
           const file = f.file.files[0];
-          if (!file) throw new Error('Выберите файл PDF или PowerPoint.');
+          if (!file) throw new Error('Выберите файл: PDF, PowerPoint или видео.');
           const pr = form.querySelector('#mat-progress');
           data.upload = await uploadPdf(file, (p) => { pr.textContent = `Загружено ${p}% из ${fileSize(file.size)}…`; });
           data.name = file.name;
@@ -2418,7 +2537,7 @@
         }
         await call('admin_material_save', data);
         modal.close();
-        toast(data.id ? 'Изменения сохранены' : 'Презентация загружена');
+        toast(data.id ? 'Изменения сохранены' : /\.(mp4|m4v|mov|webm)$/i.test(data.name || '') ? 'Видео загружено' : 'Материал загружен');
         await loadMaterials();
         return;
       }
