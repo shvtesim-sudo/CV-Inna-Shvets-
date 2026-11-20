@@ -1303,21 +1303,15 @@
   const isOrtho = (c) => c && c.category === 'ortho';
   const orthoName = (c) => { const t = c.title.replace(/^Ортопедия\. Блок \d+:\s*/, ''); return t.charAt(0).toUpperCase() + t.slice(1); };
 
-  // Видео блока: загруженные на сайт (материал с привязкой к блоку) смотрим здесь же, ролики Крейт — по ссылке на облако
+  // Видео и презентации блока — материалы, привязанные к блоку (загруженные файлы или ссылки на Google Диск, YouTube)
   function orthoVideosHtml(c) {
     const mine = (mats.list || []).filter((m) => isVideo(m) && m.course === c.id);
-    // Ролик Крейт со ссылкой на облако скрываем, если такое же видео уже загружено (совпадает название)
-    const key = (t) => norm(t).replace(/крейт|\(\d+\)|\.mp4|[^a-zа-я0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-    const have = mine.map((m) => key(m.title));
-    const cloud = mine.length >= (c.videos || []).length ? []
-      : (c.videos || []).filter((v) => !have.some((h) => h === key(v.title) || h.startsWith(key(v.title) + ' ')));
     // Презентации и PDF, привязанные к блоку
     const docs = (mats.list || []).filter((m) => !isVideo(m) && m.course === c.id);
-    if (!mine.length && !cloud.length && !docs.length) return '';
+    if (!mine.length && !docs.length) return '';
     return `<ul class="ortho-videos">
       ${mine.map((m) => `<li><button type="button" class="ortho-video" data-play="${m.id}"><span class="ortho-video__play" aria-hidden="true">▶</span><span>${esc(m.title)}<small>${esc(videoMeta(m))}</small></span></button></li>`).join('')}
       ${docs.map((m) => `<li><a class="ortho-video ortho-video--doc${isPpt(m) && !m.pdf ? ' ortho-video--ppt' : ''}" ${matOpen(m)}><span class="ortho-video__play" aria-hidden="true">${isPpt(m) ? 'PPT' : 'PDF'}</span><span>${esc(m.title)}<small>${pptOnly(m) ? 'Презентация PowerPoint · скачать' : 'Презентация · открыть на сайте'}${m.brand ? ' · ' + esc(m.brand) : ''}</small></span></a></li>`).join('')}
-      ${cloud.map((v) => `<li><a class="ortho-video ortho-video--cloud" href="${esc(v.url)}" target="_blank" rel="noopener"><span class="ortho-video__play" aria-hidden="true">▶</span><span>${esc(v.title)}<small>Видео Крейт · откроется на Облаке Mail.ru ↗</small></span></a></li>`).join('')}
     </ul>`;
   }
   // Все материалы по ортопедии: направление «Ортопедия», привязка к блоку или бренд «Крейт»
@@ -1325,7 +1319,11 @@
   function fillOrtho() {
     document.querySelectorAll('[data-ortho-videos]').forEach((box) => {
       const c = findCourse(box.dataset.orthoVideos);
-      if (c) box.innerHTML = orthoVideosHtml(c);
+      if (!c) return;
+      const html = orthoVideosHtml(c);
+      box.innerHTML = html;
+      const wrap = box.closest('.ortho-course-media');
+      if (wrap) wrap.hidden = !html;
     });
     const grid = document.getElementById('ortho-mats');
     if (grid && mats.list) {
@@ -1452,7 +1450,7 @@
             <a class="btn btn--primary" href="${next.href}">${next.label}</a>
           </aside>
         </div>
-        ${c.videos ? `<h2>Обучающие видео</h2><div data-ortho-videos="${c.id}">${orthoVideosHtml(c)}</div>` : ''}
+        ${isOrtho(c) ? `<section class="ortho-course-media" hidden><h2>Видео и презентации</h2><div data-ortho-videos="${c.id}"></div></section>` : ''}
         <h2>Программа курса</h2>
         <ol class="lesson-list">
           ${lessons}
@@ -2270,7 +2268,7 @@
     if (!page) { startPillars(); if (mode === 'server' && user) loadTodayExtras(); }
     if (page === 'law') renderLaw();
     if (page === 'courses') renderCourseGrid();
-    if (page === 'ortho' || (page === 'course' && c && c.videos)) loadOrthoVideos();
+    if (page === 'ortho' || (page === 'course' && isOrtho(c))) loadOrthoVideos();
     if (page === 'lesson') labelLessonTables();
     if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
     if (page === 'events' && mode === 'server') { if (evs.data) renderEvents(); loadEvents(); }
