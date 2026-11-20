@@ -1232,7 +1232,7 @@
               ${c ? `<a class="btn btn--ghost btn--sm" href="#/course/${c.id}">${isPassed(c) ? 'Курс пройден ✓' : 'Тест по теме'}</a>` : ''}
             </div>
             ${isPpt(m) && m.pdf ? `<p class="mat-orig small"><a href="${matUrl(m, true, true)}">Оригинал PowerPoint (${fileSize(m.size)})</a></p>` : ''}
-            ${pptOnly(m) && m.converting ? '<p class="muted small">Готовим версию для просмотра на сайте — обычно до 15 минут после загрузки.</p>' : ''}
+            ${pptOnly(m) && m.converting ? `<p class="muted small">Готовим версию для просмотра на сайте — обычно несколько минут.${isAdmin() ? ` <button type="button" class="link-btn" data-conv-kick>Подготовить PDF сейчас</button>` : ''}</p>` : ''}
             ${isAdmin() ? `<div class="mat-admin"><button class="link-btn" data-mat-edit="${m.id}">Изменить</button><button class="link-btn" data-mat-delete="${m.id}">Удалить</button></div>` : ''}
           </div>
         </article>`;
@@ -1246,7 +1246,7 @@
         <h2>${isNew ? 'Новая презентация' : 'Материал'}</h2>
         <input type="hidden" name="id" value="${m.id}">
         ${isNew ? `<div class="field"><label for="mat-file">Файл: PDF, PowerPoint или видео</label><input id="mat-file" name="file" type="file" accept="application/pdf,.pdf,.pptx,.ppsx,.ppt,.pps,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint,video/mp4,video/webm,video/quicktime,.mp4,.m4v,.mov,.webm">
-          <p class="muted small">Файл загружается без изменений. Из презентации PowerPoint (.pptx, .ppt) сайт сам сделает PDF для просмотра — обычно в течение 15 минут. Видео (.mp4, до 1 ГБ) смотрят прямо на сайте. Большое видео загружается несколько минут — не закрывайте окно.</p></div>` : ''}
+          <p class="muted small">Файл загружается без изменений. Из презентации PowerPoint (.pptx, .ppt) сайт сам сделает PDF для просмотра — обычно за несколько минут. Видео (.mp4, до 1 ГБ) смотрят прямо на сайте. Большое видео загружается несколько минут — не закрывайте окно.</p></div>` : ''}
         ${isNew || m.link ? `<div class="field"><label for="mat-link">${isNew ? '…или ссылка на видео' : 'Ссылка на видео'}</label><input id="mat-link" name="link" type="url" maxlength="500" value="${esc(m.link || '')}" placeholder="https://drive.google.com/file/d/… или https://youtu.be/…">
           <p class="muted small">Для больших роликов: загрузите видео на Google Диск или YouTube и вставьте ссылку — смотреть будут прямо на сайте, а база не растёт. На Google Диске откройте доступ «Все, у кого есть ссылка».</p></div>` : ''}
         ${isNew ? '<p class="muted small">Чтобы видео появилось в разделе «Ортопедия», выберите ниже направление «Ортопедия» и нужный блок в поле «Курс с тестом».</p>' : ''}
@@ -1900,6 +1900,7 @@
               : '<p class="muted small">Укажите сотрудникам аптеку — здесь появится сводка.</p>'}
           </div>
           ${isAdmin() && admin.telegram && admin.telegram.bot ? tgAdminPanel(staff) : ''}
+          ${isAdmin() ? convAdminPanel() : ''}
           ${isAdmin() ? `<div class="panel">
             <h3>Самостоятельная регистрация</h3>
             <form id="invite-form">
@@ -1937,6 +1938,28 @@
               <div class="field"><label for="tg-token">${t.bot ? 'Новый токен (если меняете бота)' : 'Токен бота'}</label><input id="tg-token" name="token" autocomplete="off" placeholder="123456789:AA…"></div>
               <div class="form-msg"></div>
               <button class="btn ${t.bot ? 'btn--ghost' : 'btn--primary'} btn--sm${top ? '' : ' btn--block'}">${t.bot ? 'Заменить бота' : 'Подключить бота'}</button>
+            </form>
+          </div>`;
+  }
+
+  // Мгновенный запуск конвертера PowerPoint → PDF: токен GitHub (право Actions: Read and write на один репозиторий)
+  function convAdminPanel() {
+    const on = !!admin.converter;
+    return `<div class="panel">
+            <h3>Презентации PowerPoint → PDF</h3>
+            ${on ? '<p class="small">Подключено: PDF для просмотра появляется через 2–3 минуты после загрузки презентации.</p>'
+              : `<p class="muted small">Без этой настройки PDF готовится по расписанию GitHub — иногда через несколько часов. Чтобы PDF появлялся за 2–3 минуты:</p>
+            <ol class="small conv-steps">
+              <li>Войдите в GitHub и откройте <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">создание токена ↗</a>.</li>
+              <li>Token name — «ВИВААКАДЕМИЯ», Expiration — самый долгий срок.</li>
+              <li>Repository access — <b>Only select repositories</b> → <b>CV-Inna-Shvets-</b>.</li>
+              <li>Permissions → Repository permissions → <b>Actions</b> → <b>Read and write</b>.</li>
+              <li>Generate token, скопируйте его (начинается с github_pat_) и вставьте сюда.</li>
+            </ol>`}
+            <form id="conv-form">
+              <div class="field"><label for="conv-token">${on ? 'Новый токен (если прежний истёк)' : 'Токен GitHub'}</label><input id="conv-token" name="token" autocomplete="off" placeholder="github_pat_…"></div>
+              <div class="form-msg"></div>
+              <button class="btn ${on ? 'btn--ghost' : 'btn--primary'} btn--sm btn--block">${on ? 'Заменить токен' : 'Подключить'}</button>
             </form>
           </div>`;
   }
@@ -2356,6 +2379,12 @@
       return;
     }
     if (t.hasAttribute('data-mat-new')) { openMaterialForm(null); return; }
+    if (t.hasAttribute('data-conv-kick')) {
+      t.disabled = true;
+      try { await call('admin_conv_kick', {}); toast('Конвертер запущен — PDF будет готов через 2–3 минуты. Обновите страницу.'); }
+      catch (err) { toast(err.message); t.disabled = false; }
+      return;
+    }
     if (t.hasAttribute('data-ortho-new')) { openMaterialForm(null, { category: 'ortho', brand: 'Крейт' }); return; }
     if (t.dataset.matEdit) { openMaterialForm(mats.list.find((m) => m.id === Number(t.dataset.matEdit))); return; }
     if (t.dataset.matDelete) {
@@ -2561,6 +2590,14 @@
         modal.close();
         toast(r.sent ? `Сохранено. Сообщение отправлено: ${r.sent}` : 'Сохранено');
         await loadEvents();
+        return;
+      }
+      if (formId === 'conv-form') {
+        const token = f.token.value.trim();
+        if (!token) throw new Error('Вставьте токен GitHub (начинается с github_pat_).');
+        await call('admin_conv_setup', { token });
+        toast('Конвертер подключён — PDF будут готовиться за 2–3 минуты');
+        await loadAdmin();
         return;
       }
       if (formId === 'tg-form') {

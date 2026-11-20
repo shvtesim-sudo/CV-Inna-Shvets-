@@ -292,3 +292,43 @@ function event_row(array $e, int $uid): array
         'duration' => (int)$e['duration'], 'capacity' => (int)$e['capacity'], 'registered' => $regs, 'mine' => $mine,
     ];
 }
+
+// Конвертер PowerPoint → PDF (GitHub Actions, .github/workflows/academy-convert.yml).
+// Сайт запускает его сразу после загрузки презентации — по токену GitHub с правом Actions: Read and write.
+// Без токена конвертер запускается только по расписанию GitHub (оно бывает раз в несколько часов).
+function gh_repo(): string
+{
+    $r = setting('gh_repo');
+    return $r !== '' ? $r : 'shvtesim-sudo/CV-Inna-Shvets-';
+}
+
+function gh_dispatch(string $token = ''): int
+{
+    $token = $token !== '' ? $token : setting('gh_token');
+    if ($token === '') {
+        return 0;
+    }
+    $url = 'https://api.github.com/repos/' . gh_repo() . '/actions/workflows/academy-convert.yml/dispatches';
+    $headers = ['Authorization: Bearer ' . $token, 'Accept: application/vnd.github+json', 'X-GitHub-Api-Version: 2022-11-28',
+                'User-Agent: VivaAcademy', 'Content-Type: application/json'];
+    $body = '{"ref":"main"}';
+    $code = 0;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => $headers, CURLOPT_TIMEOUT => 10, CURLOPT_CONNECTTIMEOUT => 5]);
+        $raw = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+    } else {
+        $raw = @file_get_contents($url, false, stream_context_create(['http' => [
+            'method' => 'POST', 'header' => implode("\r\n", $headers) . "\r\n", 'content' => $body, 'timeout' => 10, 'ignore_errors' => true]]));
+        if (isset($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m)) {
+            $code = (int)$m[1];
+        }
+    }
+    if ($code !== 204) {
+        error_log('[viva-academy] github dispatch: HTTP ' . $code . ' ' . (is_string($raw) ? substr($raw, 0, 200) : ''));
+    }
+    return $code;
+}

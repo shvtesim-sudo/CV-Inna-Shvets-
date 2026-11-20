@@ -13,7 +13,7 @@ SITE = os.environ.get('SITE', 'https://vivaacademy.md').rstrip('/')
 KEY = os.environ['CONV_KEY']
 API = SITE + '/api/index.php?action='
 CHUNK = 512 * 1024
-MAX_PER_RUN = 5
+MAX_PER_RUN = 25
 # Изображения в PDF — до 200 точек на дюйм: на экране телефона и компьютера выглядит чётко, а файл легче
 PDF_FILTER = 'pdf:impress_pdf_Export:' + json.dumps({
     'ReduceImageResolution': {'type': 'boolean', 'value': 'true'},
