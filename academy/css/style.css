@@ -1225,3 +1225,7 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 .mat-video { display: block; width: 100%; max-height: 70vh; margin: 8px 0 14px; border-radius: var(--radius); background: #000; }
 .mat-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; margin: 8px 0 14px; border-radius: var(--radius); overflow: hidden; background: #000; }
 .mat-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.ortho-mats { margin: 28px 0 8px; }
+.ortho-mats .section__head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.ortho-video--doc .ortho-video__play { background: #1f4a6b; font: 700 .62rem var(--font-head); letter-spacing: .04em; }
+.ortho-video--ppt .ortho-video__play { background: #c43e1c; }
