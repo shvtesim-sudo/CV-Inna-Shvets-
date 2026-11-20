@@ -124,6 +124,11 @@ if ($action === 'material_file') {
     if (!$m) {
         fail(404, 'not_found', 'Материал не найден.');
     }
+    // Видео по ссылке хранится не у нас — отправляем на источник
+    if (!empty($m['link'])) {
+        header('Location: ' . $m['link'], true, 302);
+        exit;
+    }
     $type = material_type((string)$m['original_name']);
     // У презентации PowerPoint по умолчанию отдаём PDF-копию (если готова), с orig=1 — исходный файл
     $usePdf = is_ppt($type) && !empty($m['pdf']) && empty($_GET['orig']);
@@ -675,8 +680,24 @@ switch ($action) {
             fail(422, 'invalid', 'Укажите название материала.');
         }
         $fields = [$title, str_in('brand', 120), str_in('category', 40), str_in('description', 2000), str_in('course', 40)];
+        $link = video_link(str_in('link', 500));
+        if (str_in('link', 500) !== '' && $link === '') {
+            fail(422, 'invalid', 'Ссылка на видео должна начинаться с https://');
+        }
         if ($id) {
             q('UPDATE materials SET title = ?, brand = ?, category = ?, description = ?, course_id = ? WHERE id = ?', array_merge($fields, [$id]));
+            if ($link !== '') {
+                q("UPDATE materials SET link = ? WHERE id = ? AND link <> ''", [$link, $id]);
+            }
+            json_out(['ok' => true]);
+        }
+        if ($link !== '') {
+            q("INSERT INTO materials (title, brand, category, description, course_id, file, original_name, size, created_at, link) VALUES (?, ?, ?, ?, ?, '', '', 0, ?, ?)",
+              array_merge($fields, [now(), $link]));
+            if (!empty(input()['announce'])) {
+                tg_broadcast('🎬 <b>Новое обучающее видео</b>' . "\n\n" . h($title) . ($fields[1] !== '' ? ' · ' . h($fields[1]) : '')
+                    . "\n\n" . 'Смотреть: ' . site_url() . '#/materials');
+            }
             json_out(['ok' => true]);
         }
         $token = preg_replace('/[^a-f0-9]/', '', str_in('upload', 64));
