@@ -133,7 +133,8 @@ function schema(): array
             pdf VARCHAR(32) NULL,
             pdf_size INT NOT NULL DEFAULT 0,
             conv_tries INT NOT NULL DEFAULT 0,
-            conv_error VARCHAR(300) NOT NULL DEFAULT ''
+            conv_error VARCHAR(300) NOT NULL DEFAULT '',
+            link VARCHAR(500) NOT NULL DEFAULT ''
         )$tail",
         // Содержимое файлов материалов частями по 512 КБ (хранится в базе — не нужны права записи на диск)
         "CREATE TABLE IF NOT EXISTS material_chunks (
@@ -177,7 +178,7 @@ function schema(): array
 }
 
 // Новые таблицы для уже установленной платформы: создаются один раз при первом запросе
-const SCHEMA_VERSION = '6';
+const SCHEMA_VERSION = '7';
 function migrate(): void
 {
     try {
@@ -192,7 +193,9 @@ function migrate(): void
             db()->exec($sql);
         }
         // Версия 6: PDF-копия презентаций PowerPoint (делает GitHub Actions, см. tools/convert-materials.py)
-        foreach (['pdf VARCHAR(32) NULL', 'pdf_size INT NOT NULL DEFAULT 0', 'conv_tries INT NOT NULL DEFAULT 0', "conv_error VARCHAR(300) NOT NULL DEFAULT ''"] as $col) {
+        foreach (['pdf VARCHAR(32) NULL', 'pdf_size INT NOT NULL DEFAULT 0', 'conv_tries INT NOT NULL DEFAULT 0', "conv_error VARCHAR(300) NOT NULL DEFAULT ''",
+                  // Версия 7: видео по ссылке (Google Диск, YouTube) — файл не хранится в базе
+                  "link VARCHAR(500) NOT NULL DEFAULT ''"] as $col) {
             try {
                 db()->exec('ALTER TABLE materials ADD COLUMN ' . $col);
             } catch (Throwable $e) {
@@ -580,11 +583,23 @@ function upload_size(string $upload): int
     return $size;
 }
 
+// Ссылка на видео (Google Диск, YouTube и др.): только https, без пробелов и кавычек
+function video_link(string $url): string
+{
+    $url = trim($url);
+    if (!preg_match('~^https://[^\s"\'<>]+$~i', $url) || strlen($url) > 500) {
+        return '';
+    }
+    return $url;
+}
+
 function material_row(array $r): array
 {
-    $type = material_type((string)$r['original_name']);
+    $link = (string)($r['link'] ?? '');
+    $type = $link !== '' ? 'video' : material_type((string)$r['original_name']);
     return [
         'type' => $type,
+        'link' => $link,
         // Для PowerPoint: есть ли готовая PDF-копия для просмотра и идёт ли ещё её подготовка
         'pdf' => is_ppt($type) && !empty($r['pdf']),
         'pdfSize' => (int)($r['pdf_size'] ?? 0),

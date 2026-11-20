@@ -1121,15 +1121,36 @@
   const matOpen = (m) => (isVideo(m) ? `href="${matUrl(m)}" data-play="${m.id}"`
     : pptOnly(m) ? `href="${matUrl(m, true)}"` : `href="${matUrl(m)}" target="_blank" rel="noopener"`);
 
+  // Ссылка на видео → адрес встроенного плеера (Google Диск, YouTube, Vimeo); '' — плеер не встраивается
+  function videoEmbed(link) {
+    let u;
+    try { u = new URL(link); } catch (err) { return ''; }
+    const h = u.hostname.replace(/^www\./, '');
+    let m;
+    if (h === 'drive.google.com' && (m = u.pathname.match(/\/file\/d\/([\w-]+)/))) return `https://drive.google.com/file/d/${m[1]}/preview`;
+    if (h === 'drive.google.com' && u.searchParams.get('id')) return `https://drive.google.com/file/d/${encodeURIComponent(u.searchParams.get('id'))}/preview`;
+    if ((h === 'youtube.com' || h === 'm.youtube.com') && u.searchParams.get('v')) return `https://www.youtube.com/embed/${encodeURIComponent(u.searchParams.get('v'))}`;
+    if ((h === 'youtube.com' || h === 'm.youtube.com') && (m = u.pathname.match(/^\/(shorts|embed|live)\/([\w-]+)/))) return `https://www.youtube.com/embed/${m[2]}`;
+    if (h === 'youtu.be' && (m = u.pathname.match(/^\/([\w-]+)/))) return `https://www.youtube.com/embed/${m[1]}`;
+    if (h === 'vimeo.com' && (m = u.pathname.match(/^\/(\d+)/))) return `https://player.vimeo.com/video/${m[1]}`;
+    return '';
+  }
+  const linkHost = (link) => { try { const h = new URL(link).hostname.replace(/^www\./, ''); return /drive\.google/.test(h) ? 'Google Диск' : /youtu/.test(h) ? 'YouTube' : h; } catch (err) { return 'ссылка'; } };
+  const videoMeta = (m) => (m.link ? `Видео · ${linkHost(m.link)}` : `Видео · ${fileSize(m.size)}`);
+
   // Видео смотрим прямо на сайте, в окне поверх страницы
   function openVideo(id) {
     const m = (mats.list || []).find((x) => x.id === id);
     if (!m) return;
+    const embed = m.link ? videoEmbed(m.link) : '';
+    if (m.link && !embed) { window.open(m.link, '_blank', 'noopener'); return; }
     modal.innerHTML = `
       <div class="modal__body modal__body--video">
         <h2>${esc(m.title)}</h2>
-        <video class="mat-video" src="${matUrl(m)}" controls autoplay playsinline preload="metadata"></video>
-        <div class="btn-row"><a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать видео (${fileSize(m.size)})</a><button type="button" class="btn btn--ghost btn--sm" data-close>Закрыть</button></div>
+        ${m.link ? `<div class="mat-frame"><iframe src="${esc(embed)}" title="${esc(m.title)}" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`
+          : `<video class="mat-video" src="${matUrl(m)}" controls autoplay playsinline preload="metadata"></video>`}
+        <div class="btn-row">${m.link ? `<a class="btn btn--ghost btn--sm" href="${esc(m.link)}" target="_blank" rel="noopener">Открыть на ${esc(linkHost(m.link))} ↗</a>` : `<a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать видео (${fileSize(m.size)})</a>`}<button type="button" class="btn btn--ghost btn--sm" data-close>Закрыть</button></div>
+        ${m.link && /drive\.google/.test(m.link) ? '<p class="muted small">Если видео не открывается, на Google Диске должен быть включён доступ «Все, у кого есть ссылка». Большой ролик Google Диск может обрабатывать до часа после загрузки.</p>' : ''}
       </div>`;
     modal.addEventListener('close', () => { modal.innerHTML = ''; }, { once: true });
     modal.showModal();
@@ -1195,12 +1216,12 @@
             <span class="mat-cover__type">${matType(m)}</span><span class="mat-cover__brand">${esc(m.brand || CATEGORIES[m.category] || 'Вивафарм')}</span>
           </a>
           <div class="mat-body">
-            <div class="meta">${m.category && CATEGORIES[m.category] ? `<span>${esc(CATEGORIES[m.category])}</span>` : ''}<span>${fileSize(m.pdf ? m.pdfSize : m.size)}</span><span>${formatDate(m.added)}</span>${m.added > fresh ? '<span class="badge badge--done">новое</span>' : ''}</div>
+            <div class="meta">${m.category && CATEGORIES[m.category] ? `<span>${esc(CATEGORIES[m.category])}</span>` : ''}<span>${m.link ? esc(linkHost(m.link)) : fileSize(m.pdf ? m.pdfSize : m.size)}</span><span>${formatDate(m.added)}</span>${m.added > fresh ? '<span class="badge badge--done">новое</span>' : ''}</div>
             <h3>${esc(m.title)}</h3>
             ${m.description ? `<p class="muted small">${esc(m.description)}</p>` : ''}
             <div class="btn-row">
               ${isVideo(m) ? `<button type="button" class="btn btn--primary btn--sm" data-play="${m.id}">▶ Смотреть</button>
-              <a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать</a>` : pptOnly(m) ? `<a class="btn btn--primary btn--sm" href="${matUrl(m, true)}" title="Откроется в PowerPoint; на телефоне — в приложении PowerPoint или Google Презентации">Скачать PowerPoint</a>`
+              ${m.link ? `<a class="btn btn--ghost btn--sm" href="${esc(m.link)}" target="_blank" rel="noopener">${esc(linkHost(m.link))} ↗</a>` : `<a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать</a>`}` : pptOnly(m) ? `<a class="btn btn--primary btn--sm" href="${matUrl(m, true)}" title="Откроется в PowerPoint; на телефоне — в приложении PowerPoint или Google Презентации">Скачать PowerPoint</a>`
                 : `<a class="btn btn--primary btn--sm" href="${matUrl(m)}" target="_blank" rel="noopener">Открыть</a>
               <a class="btn btn--ghost btn--sm" href="${matUrl(m, true)}">Скачать</a>`}
               ${c ? `<a class="btn btn--ghost btn--sm" href="#/course/${c.id}">${isPassed(c) ? 'Курс пройден ✓' : 'Тест по теме'}</a>` : ''}
@@ -1220,8 +1241,11 @@
       <form id="material-form" class="modal__body">
         <h2>${isNew ? 'Новая презентация' : 'Материал'}</h2>
         <input type="hidden" name="id" value="${m.id}">
-        ${isNew ? `<div class="field"><label for="mat-file">Файл: PDF, PowerPoint или видео</label><input id="mat-file" name="file" type="file" accept="application/pdf,.pdf,.pptx,.ppsx,.ppt,.pps,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint,video/mp4,video/webm,video/quicktime,.mp4,.m4v,.mov,.webm" required>
-          <p class="muted small">Файл загружается без изменений. Из презентации PowerPoint (.pptx, .ppt) сайт сам сделает PDF для просмотра — обычно в течение 15 минут. Видео (.mp4, до 1 ГБ) смотрят прямо на сайте; чтобы видео появилось в разделе «Ортопедия», выберите ниже нужный блок. Большое видео загружается несколько минут — не закрывайте окно.</p></div>` : ''}
+        ${isNew ? `<div class="field"><label for="mat-file">Файл: PDF, PowerPoint или видео</label><input id="mat-file" name="file" type="file" accept="application/pdf,.pdf,.pptx,.ppsx,.ppt,.pps,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint,video/mp4,video/webm,video/quicktime,.mp4,.m4v,.mov,.webm">
+          <p class="muted small">Файл загружается без изменений. Из презентации PowerPoint (.pptx, .ppt) сайт сам сделает PDF для просмотра — обычно в течение 15 минут. Видео (.mp4, до 1 ГБ) смотрят прямо на сайте. Большое видео загружается несколько минут — не закрывайте окно.</p></div>` : ''}
+        ${isNew || m.link ? `<div class="field"><label for="mat-link">${isNew ? '…или ссылка на видео' : 'Ссылка на видео'}</label><input id="mat-link" name="link" type="url" maxlength="500" value="${esc(m.link || '')}" placeholder="https://drive.google.com/file/d/… или https://youtu.be/…">
+          <p class="muted small">Для больших роликов: загрузите видео на Google Диск или YouTube и вставьте ссылку — смотреть будут прямо на сайте, а база не растёт. На Google Диске откройте доступ «Все, у кого есть ссылка».</p></div>` : ''}
+        ${isNew ? '<p class="muted small">Чтобы видео появилось в разделе «Ортопедия», выберите ниже направление «Ортопедия» и нужный блок в поле «Курс с тестом».</p>' : ''}
         <div class="field"><label for="mat-title">Название</label><input id="mat-title" name="title" required maxlength="200" value="${esc(m.title)}"></div>
         <div class="field-row">
           <div class="field"><label for="mat-brand">Бренд или автор</label><input id="mat-brand" name="brand" maxlength="120" value="${esc(m.brand)}" placeholder="например, Гельтек"></div>
@@ -1278,10 +1302,14 @@
   // Видео блока: загруженные на сайт (материал с привязкой к блоку) смотрим здесь же, ролики Крейт — по ссылке на облако
   function orthoVideosHtml(c) {
     const mine = (mats.list || []).filter((m) => isVideo(m) && m.course === c.id);
-    const cloud = mine.length >= (c.videos || []).length ? [] : c.videos || [];
+    // Ролик Крейт со ссылкой на облако скрываем, если такое же видео уже загружено (совпадает название)
+    const key = (t) => norm(t).replace(/крейт|\(\d+\)|\.mp4|[^a-zа-я0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const have = mine.map((m) => key(m.title));
+    const cloud = mine.length >= (c.videos || []).length ? []
+      : (c.videos || []).filter((v) => !have.some((h) => h === key(v.title) || h.startsWith(key(v.title) + ' ')));
     if (!mine.length && !cloud.length) return '';
     return `<ul class="ortho-videos">
-      ${mine.map((m) => `<li><button type="button" class="ortho-video" data-play="${m.id}"><span class="ortho-video__play" aria-hidden="true">▶</span><span>${esc(m.title)}<small>Видео · ${fileSize(m.size)}</small></span></button></li>`).join('')}
+      ${mine.map((m) => `<li><button type="button" class="ortho-video" data-play="${m.id}"><span class="ortho-video__play" aria-hidden="true">▶</span><span>${esc(m.title)}<small>${esc(videoMeta(m))}</small></span></button></li>`).join('')}
       ${cloud.map((v) => `<li><a class="ortho-video ortho-video--cloud" href="${esc(v.url)}" target="_blank" rel="noopener"><span class="ortho-video__play" aria-hidden="true">▶</span><span>${esc(v.title)}<small>Видео Крейт · откроется на Облаке Mail.ru ↗</small></span></a></li>`).join('')}
     </ul>`;
   }
@@ -2524,12 +2552,12 @@
       if (formId === 'material-form') {
         const data = {
           id: Number(f.id.value) || 0, title: f.title.value, brand: f.brand.value,
-          category: f.category.value, description: f.description.value, course: f.course.value,
+          category: f.category.value, description: f.description.value, course: f.course.value, link: f.link ? f.link.value.trim() : '',
           announce: !!(f.announce && f.announce.checked)
         };
-        if (!data.id) {
+        if (!data.id && !data.link) {
           const file = f.file.files[0];
-          if (!file) throw new Error('Выберите файл: PDF, PowerPoint или видео.');
+          if (!file) throw new Error('Выберите файл (PDF, PowerPoint, видео) или вставьте ссылку на видео.');
           const pr = form.querySelector('#mat-progress');
           data.upload = await uploadPdf(file, (p) => { pr.textContent = `Загружено ${p}% из ${fileSize(file.size)}…`; });
           data.name = file.name;
@@ -2537,7 +2565,7 @@
         }
         await call('admin_material_save', data);
         modal.close();
-        toast(data.id ? 'Изменения сохранены' : /\.(mp4|m4v|mov|webm)$/i.test(data.name || '') ? 'Видео загружено' : 'Материал загружен');
+        toast(data.id ? 'Изменения сохранены' : data.link || /\.(mp4|m4v|mov|webm)$/i.test(data.name || '') ? 'Видео добавлено' : 'Материал загружен');
         await loadMaterials();
         return;
       }
