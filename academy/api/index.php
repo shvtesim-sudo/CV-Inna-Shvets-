@@ -291,6 +291,31 @@ if ($action === 'sales') {
         json_out(['periods' => [], 'period' => null]);
     }
     $id = (int)($_GET['id'] ?? 0) ?: (int)$periods[0]['id'];
+    $periodsOut = array_map(function ($x) { return ['id' => (int)$x['id'], 'title' => $x['title']]; }, $periods);
+    // Рейтинг аптек по бланку руководства
+    $rep = q('SELECT data FROM sales_reports WHERE period_id = ?', [$id])->fetchColumn();
+    if ($rep !== false) {
+        $pr = q('SELECT * FROM sales_periods WHERE id = ?', [$id])->fetch();
+        $r = sales_pharm_report(json_decode($rep, true) ?: []);
+        $myKey = pharm_key((string)$u['branch']);
+        $mine = null;
+        foreach ($r['pharmacies'] as &$p) {
+            $p['isMine'] = $myKey !== '' && $p['key'] === $myKey;
+            if ($p['isMine']) {
+                $mine = $p;
+            }
+            unset($p['groups'], $p['key']);
+        }
+        unset($p);
+        json_out([
+            'periods' => $periodsOut,
+            'period' => ['id' => (int)$pr['id'], 'title' => $pr['title'], 'kind' => 'pharmacy', 'loaded' => strtotime($pr['created_at'] . ' UTC') * 1000],
+            'pharmacies' => $r['pharmacies'], 'brands' => $r['brands'], 'positions' => $r['positions'],
+            'groupsCount' => $r['groupsCount'], 'pharmacists' => $r['pharmacists'], 'total' => count($r['pharmacies']),
+            'mine' => $mine, 'myBranch' => (string)$u['branch'],
+            'viewer' => in_array($u['role'], ['admin', 'manager'], true),
+        ]);
+    }
     [$period, $list, $promos] = sales_board($id);
     if (!$period) {
         fail(404, 'not_found', 'Период не найден.');
@@ -309,8 +334,8 @@ if ($action === 'sales') {
         }
     }
     json_out([
-        'periods' => array_map(function ($x) { return ['id' => (int)$x['id'], 'title' => $x['title']]; }, $periods),
-        'period' => ['id' => (int)$period['id'], 'title' => $period['title'], 'metric' => $period['metric'], 'loaded' => strtotime($period['created_at'] . ' UTC') * 1000],
+        'periods' => $periodsOut,
+        'period' => ['id' => (int)$period['id'], 'title' => $period['title'], 'kind' => 'people', 'metric' => $period['metric'], 'loaded' => strtotime($period['created_at'] . ' UTC') * 1000],
         'top' => array_map($pub, array_slice($list, 0, 10)),
         'me' => $me,
         'total' => count($list),
@@ -892,6 +917,65 @@ switch ($action) {
         if ($title === '') {
             fail(422, 'invalid', 'Укажите период, например «1–15 ноября 2026».');
         }
+        // Бланк руководства: аптеки × товарные группы
+        $report = input()['report'] ?? null;
+        if (is_array($report)) {
+            $ph = [];
+            foreach ((array)($report['pharmacies'] ?? []) as $p) {
+                $name = mb_substr(trim((string)($p['name'] ?? '')), 0, 200);
+                if ($name !== '') {
+                    $ph[] = ['name' => $name, 'pharmacists' => max(0, (float)($p['pharmacists'] ?? 0))];
+                }
+            }
+            $gs = [];
+            foreach ((array)($report['groups'] ?? []) as $g) {
+                $facts = array_map(function ($v) { return is_numeric($v) ? max(0.0, (float)$v) : 0.0; }, array_slice((array)($g['fact'] ?? []), 0, count($ph)));
+                $plan1 = (float)($g['plan1'] ?? 0);
+                $gname = mb_substr(trim((string)($g['name'] ?? '')), 0, 250);
+                if ($gname !== '' && $plan1 > 0) {
+                    $gs[] = ['brand' => mb_substr(trim((string)($g['brand'] ?? '')), 0, 120), 'name' => $gname, 'members' => (int)($g['members'] ?? 1), 'plan1' => $plan1, 'fact' => $facts];
+                }
+            }
+            if (count($ph) < 1 || count($gs) < 1 || count($ph) > 500 || count($gs) > 500) {
+                fail(422, 'invalid', 'В бланке не найдены аптеки или товарные группы с планом.');
+            }
+            $db = db();
+            $db->beginTransaction();
+            try {
+                if (!empty(input()['replace'])) {
+                    foreach (q('SELECT id FROM sales_periods WHERE title = ?', [$title])->fetchAll() as $old) {
+                        q('DELETE FROM sales_rows WHERE period_id = ?', [(int)$old['id']]);
+                        q('DELETE FROM sales_reports WHERE period_id = ?', [(int)$old['id']]);
+                        q('DELETE FROM sales_periods WHERE id = ?', [(int)$old['id']]);
+                    }
+                }
+                q("INSERT INTO sales_periods (title, metric, created_at) VALUES (?, 'pharmacy', ?)", [$title, now()]);
+                $pid = (int)$db->lastInsertId();
+                q('INSERT INTO sales_reports (period_id, data) VALUES (?, ?)', [$pid, json_encode(['pharmacies' => $ph, 'groups' => $gs], JSON_UNESCAPED_UNICODE)]);
+                $db->commit();
+            } catch (Throwable $e) {
+                $db->rollBack();
+                throw $e;
+            }
+            $known = [];
+            foreach (q("SELECT branch FROM users WHERE active = 1 AND branch <> ''") as $u2) {
+                $k = pharm_key((string)$u2['branch']);
+                if ($k !== '') {
+                    $known[$k] = ($known[$k] ?? 0) + 1;
+                }
+            }
+            $withStaff = 0;
+            foreach ($ph as $p) {
+                if (isset($known[pharm_key($p['name'])])) {
+                    $withStaff++;
+                }
+            }
+            if (!empty(input()['announce'])) {
+                tg_broadcast('🏆 <b>Рейтинг аптек по акциям</b>' . "\n\n" . 'Опубликованы итоги: ' . h($title)
+                    . "\n\n" . 'Место вашей аптеки: ' . site_url() . '#/sales');
+            }
+            json_out(['ok' => true, 'id' => $pid, 'kind' => 'pharmacy', 'pharmacies' => count($ph), 'groups' => count($gs), 'withStaff' => $withStaff]);
+        }
         if (!is_array($rows) || !$rows || count($rows) > 50000) {
             fail(422, 'invalid', 'В файле не найдено строк с продажами.');
         }
@@ -963,6 +1047,7 @@ switch ($action) {
         require_admin();
         $id = (int)(input()['id'] ?? 0);
         q('DELETE FROM sales_rows WHERE period_id = ?', [$id]);
+        q('DELETE FROM sales_reports WHERE period_id = ?', [$id]);
         q('DELETE FROM sales_periods WHERE id = ?', [$id]);
         json_out(['ok' => true]);
 

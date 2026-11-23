@@ -206,7 +206,9 @@
   const formError = (msg) => `<p class="form-error" role="alert">${esc(msg)}</p>`;
 
   function downloadCsv(filename, rows) {
-    const csv = '﻿' + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    // Числа — с запятой, чтобы Excel с русскими настройками распознал их как числа
+    const cell = (v) => (typeof v === 'number' ? String(Math.round(v * 1000) / 1000).replace('.', ',') : String(v ?? ''));
+    const csv = '﻿' + rows.map((r) => r.map((v) => `"${cell(v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     a.download = filename;
@@ -1310,7 +1312,7 @@
       <div class="wrap">
         <div class="crumbs"><a href="#/">Главная</a> / Рейтинг продаж</div>
         <div class="section__head"><div><h1 style="margin:0">Рейтинг продаж по акциям</h1>
-          <p>Итоги акций, которые выставляет руководство. Данные обновляются два раза в месяц.</p></div>
+          <p>Выполнение плана по акциям, которые выставляет руководство. Данные обновляются два раза в месяц.</p></div>
           ${isAdmin() ? '<button class="btn btn--primary btn--sm" data-admin="sales">+ Загрузить продажи</button>' : ''}</div>
         <div id="sales-body"><p class="muted">Загружаем рейтинг…</p></div>
       </div>`;
@@ -1336,10 +1338,137 @@
         </li>`).join('')}</ol>`;
   }
 
+  // ── Бланк руководства «аптеки × товарные группы» ──
+  // Строка «Бренд» (дальше — аптеки по колонкам), под ней «Номенклатура» (число фармацевтов),
+  // колонка B — план на 1 фармацевта у первой позиции группы; строка без названия — итог группы «все формы».
+  const sheetRows = (wb, name) => window.XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: '' });
+  const cellTxt = (v) => String(v ?? '').trim();
+  const isEmpty = (v) => v === null || v === undefined || String(v).trim() === '';
+  function parseBlank(wb) {
+    for (const sn of wb.SheetNames) {
+      const rows = sheetRows(wb, sn);
+      const hi = rows.findIndex((r, i) => /^бренд$/i.test(cellTxt(r[0])) && rows[i + 1] && /^номенклатура$/i.test(cellTxt(rows[i + 1][0])));
+      if (hi < 0) continue;
+      if (!/план/i.test(cellTxt(rows[hi][1]))) return { noPlan: true }; // выгрузка продаж из 1С без плана
+      const cols = [];
+      rows[hi].forEach((v, j) => { if (j >= 2 && !isEmpty(v) && !/%|выполнен/i.test(cellTxt(v))) cols.push(j); });
+      if (!cols.length) continue;
+      const pharmacies = cols.map((j) => ({ name: cellTxt(rows[hi][j]), pharmacists: toNum(rows[hi + 1][j]) }));
+      const groups = [];
+      let brand = '';
+      let cur = null;
+      const close = () => { if (cur) groups.push(cur); cur = null; };
+      for (const r of rows.slice(hi + 2)) {
+        const name = cellTxt(r[0]);
+        const vals = cols.map((j) => toNum(r[j]));
+        if (!name) { // итог группы «все формы»
+          if (cur) { if (cur.members > 1) cur.name += ' — все формы'; cur.fact = vals; close(); }
+          continue;
+        }
+        const plan = cellTxt(r[1]);
+        if (plan) {
+          close();
+          const m = plan.match(/\d+(?:[.,]\d+)?/);
+          cur = { brand, name, members: 1, plan1: m ? parseFloat(m[0].replace(',', '.')) : 0, fact: vals };
+          continue;
+        }
+        const nz = cols.some((j) => !isEmpty(r[j]));
+        if (!nz && !/\d/.test(name)) { close(); brand = name; continue; }
+        if (cur) { cur.members += 1; cur.fact = cur.fact.map((v, k) => v + vals[k]); }
+      }
+      close();
+      if (groups.length) return { sheet: sn, pharmacies, groups: groups.filter((g) => g.plan1 > 0) };
+    }
+    return null;
+  }
+  // Итоговый отчёт (листы «Зачёт по позициям» и «Итог по аптекам») — те же данные в готовом виде
+  function parseReport(wb) {
+    if (!wb.SheetNames.includes('Зачёт по позициям') || !wb.SheetNames.includes('Итог по аптекам')) return null;
+    const z = sheetRows(wb, 'Зачёт по позициям');
+    const it = sheetRows(wb, 'Итог по аптекам');
+    const cnt = {};
+    it.slice(1).forEach((r) => { if (cellTxt(r[0])) cnt[cellTxt(r[0])] = toNum(r[1]); });
+    const brandOf = {};
+    if (wb.SheetNames.includes('По позициям')) sheetRows(wb, 'По позициям').forEach((r) => { if (cellTxt(r[1])) brandOf[cellTxt(r[1])] = cellTxt(r[0]); });
+    const cols = [];
+    z[0].forEach((v, j) => { if (j >= 2 && cellTxt(v)) cols.push(j); });
+    const pharmacies = cols.map((j) => ({ name: cellTxt(z[0][j]), pharmacists: cnt[cellTxt(z[0][j])] || 0 }));
+    const groups = [];
+    for (const r of z.slice(1)) {
+      const name = cellTxt(r[0]);
+      if (!name) break;
+      groups.push({ brand: brandOf[name] || '', name, members: /все формы/.test(name) ? 2 : 1, plan1: toNum(r[1]), fact: cols.map((j) => toNum(r[j])) });
+    }
+    const t = sheetRows(wb, wb.SheetNames[0]).map((r) => cellTxt(r[0])).find((x) => /за\s+\d/.test(x));
+    const m = t && t.match(/за\s+(.+?)\s+года?/);
+    return groups.length ? { sheet: 'Итоговый отчёт', pharmacies, groups: groups.filter((g) => g.plan1 > 0), title: m ? m[1] : '' } : null;
+  }
+
+  const pct1 = (x) => `${Math.round((x || 0) * 1000) / 10}`.replace('.', ',') + '%';
+  const pctCls = (x) => (x >= 1 ? 'ok' : x >= 0.5 ? 'mid' : 'low');
+
+  function renderPharmSales(box, r) {
+    const medal = ['🥇', '🥈', '🥉'];
+    const mine = r.mine;
+    const ph = r.pharmacies;
+    const top = ph.slice(0, 10);
+    const zoneName = { top: 'Верхняя зона (от 50%)', mid: 'Средняя зона (30–50%)', low: 'Нижняя зона (до 30%)' };
+    const myGroups = mine ? mine.groups.slice().sort((a, b) => (a.pct ?? 9) - (b.pct ?? 9)) : [];
+    const done = myGroups.filter((g) => g.pct >= 1).length;
+    box.innerHTML = `
+      ${r.periods.length > 1 ? `<div class="filters" role="group" aria-label="Период">${r.periods.map((p) => `<button class="chip" data-sales-period="${p.id}" aria-pressed="${p.id === r.period.id}">${esc(p.title)}</button>`).join('')}</div>` : ''}
+      <p class="muted small">Период: <b>${esc(r.period.title)}</b> · аптек: ${r.total} · фармацевтов: ${fmtNum(r.pharmacists)} · товарных групп: ${r.groupsCount}.
+        Рейтинг — по итоговому проценту: среднее выполнение плана по товарным группам (каждая группа засчитывается не больше чем на 100%). План — на месяц, факт — за период.</p>
+      <div class="sales-grid">
+        <section class="panel">
+          <h2>Топ-10 аптек</h2>
+          <ol class="top-list">${top.map((x) => `
+            <li class="${x.isMine ? 'is-me' : ''}">
+              <span class="top-place" aria-label="${x.place} место">${medal[x.place - 1] || x.place}</span>
+              <span class="grow"><b>${esc(x.short)}</b>${x.isMine ? ' <span class="badge badge--done">ваша аптека</span>' : ''}<small>${esc(x.address)}${x.address ? ' · ' : ''}по количеству ${pct1(x.pctQty)} · ${fmtNum(x.fact)} из ${fmtNum(x.plan)} уп.</small></span>
+              <span class="top-points"><b>${pct1(x.pctAvg)}</b><small>выполнение</small></span>
+            </li>`).join('')}</ol>
+          ${mine && mine.place > 10 ? `<p class="top-me">Ваша аптека: <b>${mine.place}</b> место из ${r.total} · ${pct1(mine.pctAvg)}</p>` : ''}
+        </section>
+        <section class="panel">
+          <h2>Моя аптека</h2>
+          ${mine ? `<p class="sales-me"><span class="sales-me__place">${mine.place}</span><span><b>${esc(mine.short)}</b> — место из ${r.total}<small>${esc(mine.address)}</small></span></p>
+            <div class="sales-kpi">
+              <div><b>${pct1(mine.pctAvg)}</b><span>итоговый процент</span></div>
+              <div><b>${pct1(mine.pctQty)}</b><span>по количеству</span></div>
+              <div><b>${fmtNum(mine.fact)}</b><span>из ${fmtNum(mine.plan)} уп.</span></div>
+            </div>
+            <p class="small">Выполнено групп: <b>${done}</b> из ${myGroups.length}. Фармацевтов в плане: ${fmtNum(mine.pharmacists)}.</p>
+            <details class="sales-groups"${myGroups.length <= 12 ? ' open' : ''}><summary>Товарные группы — сначала те, где план выполнен меньше всего</summary>
+              <ul class="sales-promos">${myGroups.map((g) => `<li><span>${esc(g.name)}<small>${esc(g.brand)} · ${fmtNum(g.fact)} из ${fmtNum(g.plan)} уп.</small>${progressBar(Math.min(100, Math.round((g.pct || 0) * 100)))}</span><b class="pct-${pctCls(g.pct)}">${pct1(g.pct)}</b></li>`).join('')}</ul>
+            </details>`
+          : `<p class="muted">${r.myBranch ? `Аптека «${esc(r.myBranch)}» не найдена в отчёте.` : 'В вашем профиле не указана аптека.'} Укажите в <a href="#/profile">личном кабинете</a> аптеку так, как она называется в отчёте, например «Аптека №7» или «ФП №55».</p>`}
+        </section>
+      </div>
+      <section class="panel" style="margin-top:18px">
+        <h2>Бренды</h2>
+        <div class="table-scroll"><table class="sales-table"><tr><th>Бренд</th><th>План сети, уп.</th><th>Факт, уп.</th><th>По количеству</th><th>По ассортименту</th><th>Итог</th></tr>
+          ${r.brands.map((b) => `<tr><td>${esc(b.brand)}</td><td>${fmtNum(b.plan)}</td><td>${fmtNum(b.fact)}</td><td>${pct1(b.pctQty)}</td><td>${pct1(b.pctAssort)}</td><td><b class="pct-${pctCls(b.score)}">${pct1(b.score)}</b></td></tr>`).join('')}</table></div>
+        <p class="muted small">Итог бренда — меньший из двух показателей.</p>
+      </section>
+      <section class="panel" style="margin-top:18px">
+        <h2>Позиции по сети</h2>
+        ${['top', 'mid', 'low'].map((z) => { const list = r.positions.filter((p) => p.zone === z); return list.length ? `<h3 class="sales-zone sales-zone--${z}">${zoneName[z]}</h3>
+          <ul class="sales-promos">${list.map((p) => `<li><span>${esc(p.name)}<small>${esc(p.brand)} · план ${fmtNum(p.plan1)} уп. на фармацевта · ${fmtNum(p.fact)} из ${fmtNum(p.plan)} уп.</small></span><b class="pct-${pctCls(p.pct)}">${pct1(p.pct)}</b></li>`).join('')}</ul>` : ''; }).join('')}
+      </section>
+      <section class="panel" style="margin-top:18px">
+        <div class="section__head"><h2 style="margin:0">Все аптеки</h2>
+          <div class="btn-row">${r.viewer ? '<button class="btn btn--ghost btn--sm" data-sales-csv>Скачать в Excel</button>' : ''}${isAdmin() ? `<button class="btn btn--ghost btn--sm" data-sales-delete="${r.period.id}">Удалить период</button>` : ''}</div></div>
+        <div class="table-scroll"><table class="sales-table"><tr><th>Место</th><th>Аптека</th><th>Фарм.</th><th>План, уп.</th><th>Факт, уп.</th><th>По количеству</th><th>Итог</th></tr>
+          ${ph.map((x) => `<tr class="${x.isMine ? 'is-me' : ''}"><td>${x.place}</td><td>${esc(x.short)}<small class="muted"> ${esc(x.address)}</small></td><td>${fmtNum(x.pharmacists)}</td><td>${fmtNum(x.plan)}</td><td>${fmtNum(x.fact)}</td><td>${pct1(x.pctQty)}</td><td><b>${pct1(x.pctAvg)}</b></td></tr>`).join('')}</table></div>
+      </section>`;
+  }
+
   function renderSales() {
     const box = document.getElementById('sales-body');
     const r = sales.data;
     if (!box || !r) return;
+    if (r.period && r.period.kind === 'pharmacy') { renderPharmSales(box, r); return; }
     if (!r.period) {
       box.innerHTML = `<div class="empty">Рейтинг продаж пока не загружен.${isAdmin() ? ' Нажмите «+ Загрузить продажи» и выберите Excel-файл от руководства.' : ' Он появится, когда руководство подведёт итоги акций.'}</div>`;
       return;
@@ -1381,6 +1510,17 @@
     try {
       const r = await call('sales');
       if (!r.period) return;
+      if (r.period.kind === 'pharmacy') {
+        const m = r.mine;
+        if (!m && !r.myBranch) return;
+        box.hidden = false;
+        box.innerHTML = `<h3>Продажи по акциям — моя аптека</h3>
+          <p class="muted small">${esc(r.period.title)}</p>
+          ${m ? `<p class="sales-me"><span class="sales-me__place">${m.place}</span><span><b>${esc(m.short)}</b> — место из ${r.total}<small>итоговый процент ${pct1(m.pctAvg)} · по количеству ${pct1(m.pctQty)}</small></span></p>`
+            : `<p class="muted small">Аптека «${esc(r.myBranch)}» не найдена в отчёте — проверьте название аптеки выше (например, «Аптека №7» или «ФП №55»).</p>`}
+          <a class="btn btn--ghost btn--sm" href="#/sales">Рейтинг аптек</a>`;
+        return;
+      }
       const metric = r.period.metric;
       const me = r.me;
       box.hidden = false;
@@ -1434,7 +1574,7 @@
     modal.innerHTML = `
       <form id="sales-form" class="modal__body modal__body--wide">
         <h2>Загрузка рейтинга продаж</h2>
-        <p class="muted small">Excel-файл от руководства (.xlsx, .xls или .csv). Сотрудники находятся по логину или по ФИО (при однофамильцах — по аптеке). Подходят оба вида таблиц: «одна строка — сотрудник и акция» и «сотрудники по строкам, акции по колонкам».</p>
+        <p class="muted small">Excel-файл от руководства (.xlsx, .xls или .csv). Бланк «аптеки по колонкам, товары по строкам» с планом на 1 фармацевта распознаётся автоматически — сайт сам посчитает выполнение плана. Подходят и таблицы продаж по сотрудникам.</p>
         <div class="field-row">
           <div class="field"><label for="sales-title">Период</label><input id="sales-title" name="title" maxlength="120" required value="${esc(defaultSalesTitle())}"></div>
           <div class="field"><label for="sales-file">Файл</label><input id="sales-file" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" required></div>
@@ -1454,6 +1594,23 @@
       try {
         await loadXlsx();
         const wb = window.XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        const blank = parseBlank(wb);
+        if (blank && blank.noPlan) {
+          modal.sales = null;
+          box.innerHTML = formError('Это выгрузка продаж без плана (аптеки по колонкам, но нет колонки «План на 1 фарм»). Загрузите бланк с планом на 1 фармацевта — например, «Бланк с 01-15.11.26».');
+          return;
+        }
+        const pharm = blank || parseReport(wb);
+        if (pharm) {
+          modal.sales = { wb, pharm };
+          if (pharm.title) modal.querySelector('#sales-title').value = pharm.title;
+          const staff = pharm.pharmacies.reduce((a, p) => a + p.pharmacists, 0);
+          const brands = new Set(pharm.groups.map((g) => g.brand)).size;
+          box.innerHTML = `<div class="note"><b>Распознан бланк по аптекам</b> (${esc(pharm.sheet)}): аптек — <b>${pharm.pharmacies.length}</b>, фармацевтов — <b>${fmtNum(staff)}</b>, товарных групп с планом — <b>${pharm.groups.length}</b>, брендов — <b>${brands}</b>.
+            Сайт сам посчитает выполнение плана по каждой аптеке, бренду и позиции. Сотрудники увидят свою аптеку по полю «Аптека» в профиле.</div>
+            <details class="small"><summary>Товарные группы и план на 1 фармацевта</summary><ul>${pharm.groups.map((g) => `<li>${esc(g.brand)} · ${esc(g.name)} — ${fmtNum(g.plan1)} уп.</li>`).join('')}</ul></details>`;
+          return;
+        }
         modal.sales = { wb, sheet: wb.SheetNames[0] };
         salesMapRender();
       } catch (err) { box.innerHTML = formError(err.message || 'Не удалось прочитать файл.'); }
@@ -2649,6 +2806,12 @@
     }
     if (t.hasAttribute('data-mat-new')) { openMaterialForm(null); return; }
     if (t.dataset.salesPeriod) { loadSales(Number(t.dataset.salesPeriod)); return; }
+    if (t.hasAttribute('data-sales-csv') && sales.data && sales.data.pharmacies) {
+      const r = sales.data;
+      downloadCsv(`viva-academy-apteki-${translit(r.period.title).slice(0, 40)}.csv`, [['Место', 'Аптека', 'Адрес', 'Фармацевтов', 'План, уп.', 'Факт, уп.', '% с перевыполнением', '% по количеству', 'Итоговый %', 'Период']]
+        .concat(r.pharmacies.map((x) => [x.place, x.short, x.address, x.pharmacists, x.plan, x.fact, pct1(x.pctOver), pct1(x.pctQty), pct1(x.pctAvg), r.period.title])));
+      return;
+    }
     if (t.hasAttribute('data-sales-csv') && sales.data && sales.data.all) {
       const r = sales.data;
       downloadCsv(`viva-academy-prodazhi-${translit(r.period.title).slice(0, 40)}.csv`, [['Место', 'Сотрудник', 'Аптека', 'Акций', 'Количество, шт.', 'Сумма, руб.', 'Найден в Академии', 'Период']]
@@ -2873,6 +3036,16 @@
         modal.close();
         toast(r.sent ? `Сохранено. Сообщение отправлено: ${r.sent}` : 'Сохранено');
         await loadEvents();
+        return;
+      }
+      if (formId === 'sales-form' && modal.sales && modal.sales.pharm) {
+        const { pharmacies, groups } = modal.sales.pharm;
+        const r = await call('admin_sales_import', { title: f.title.value.trim(), report: { pharmacies, groups }, replace: !!f.replace.checked, announce: !!f.announce.checked });
+        modal.innerHTML = `<div class="modal__body"><h2>Рейтинг аптек загружен</h2>
+          <p>Аптек: <b>${r.pharmacies}</b>, товарных групп: <b>${r.groups}</b>. Аптек, где в Академии есть сотрудники с указанной аптекой: <b>${r.withStaff}</b>.</p>
+          ${r.withStaff < r.pharmacies ? '<p class="note">Сотрудник видит результат своей аптеки, если в профиле в поле «Аптека» указано, например, «Аптека №7» или «ФП №55». Остальным будет подсказка, как это исправить.</p>' : ''}
+          <div class="btn-row" style="margin-top:16px"><a class="btn btn--primary" href="#/sales" data-close>Открыть рейтинг</a><button class="btn btn--ghost" data-close>Закрыть</button></div></div>`;
+        if (location.hash.startsWith('#/sales')) loadSales(r.id);
         return;
       }
       if (formId === 'sales-form') {
