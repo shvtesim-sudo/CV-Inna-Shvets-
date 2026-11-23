@@ -174,11 +174,28 @@ function schema(): array
             FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )$tail",
+        // Рейтинг продаж по акциям: периоды (загрузка Excel от руководства 2 раза в месяц) и строки продаж
+        "CREATE TABLE IF NOT EXISTS sales_periods (
+            id $id,
+            title VARCHAR(120) NOT NULL,
+            metric VARCHAR(10) NOT NULL DEFAULT 'qty',
+            created_at DATETIME NOT NULL
+        )$tail",
+        "CREATE TABLE IF NOT EXISTS sales_rows (
+            id $id,
+            period_id INT NOT NULL,
+            user_id INT NULL,
+            name VARCHAR(160) NOT NULL DEFAULT '',
+            branch VARCHAR(160) NOT NULL DEFAULT '',
+            promo VARCHAR(200) NOT NULL DEFAULT '',
+            qty DOUBLE NOT NULL DEFAULT 0,
+            amount DOUBLE NOT NULL DEFAULT 0
+        )$tail",
     ];
 }
 
 // Новые таблицы для уже установленной платформы: создаются один раз при первом запросе
-const SCHEMA_VERSION = '7';
+const SCHEMA_VERSION = '8';
 function migrate(): void
 {
     try {
@@ -608,5 +625,147 @@ function material_row(array $r): array
         'description' => (string)$r['description'], 'course' => $r['course_id'], 'size' => (int)$r['size'],
         'added' => strtotime($r['created_at'] . ' UTC') * 1000,
     ];
+}
+
+// ─── Рейтинг продаж по акциям ───
+function sales_norm(string $s): string
+{
+    $s = mb_strtolower(str_replace(['ё', 'Ё'], 'е', $s));
+    return trim(preg_replace('/[^\p{L}\p{N}]+/u', ' ', $s));
+}
+
+// Ключ имени без учёта порядка слов: «Швец Инна» и «Инна Швец» совпадают
+function sales_name_key(array $words): string
+{
+    sort($words);
+    return implode(' ', $words);
+}
+
+// Привязка строк файла к сотрудникам: по логину, затем по ФИО (полностью или по фамилии и имени, в любом порядке), при совпадениях — по аптеке
+function sales_matcher(): callable
+{
+    $byLogin = [];
+    $byName = [];
+    $byShort = [];
+    foreach (q('SELECT id, login, name, branch FROM users WHERE active = 1') as $u) {
+        $byLogin[mb_strtolower(trim($u['login']))] = (int)$u['id'];
+        $n = sales_norm($u['name']);
+        if ($n === '') {
+            continue;
+        }
+        $w = explode(' ', $n);
+        $byName[sales_name_key($w)][] = $u;
+        if (count($w) >= 2) {
+            // «Фамилия Имя» из «Фамилия Имя Отчество» и «Имя Фамилия» — оба варианта первых двух слов
+            $byShort[sales_name_key([$w[0], $w[1]])][] = $u;
+        }
+    }
+    $pick = function (array $list, string $branch) {
+        if (count($list) === 1) {
+            return (int)$list[0]['id'];
+        }
+        $b = sales_norm($branch);
+        foreach ($list as $u) {
+            if ($b !== '' && sales_norm($u['branch']) === $b) {
+                return (int)$u['id'];
+            }
+        }
+        return null; // однофамильцы без аптеки — не угадываем
+    };
+    return function (string $login, string $name, string $branch) use ($byLogin, $byName, $byShort, $pick) {
+        $l = mb_strtolower(trim($login));
+        if ($l !== '' && isset($byLogin[$l])) {
+            return $byLogin[$l];
+        }
+        $n = sales_norm($name);
+        if ($n === '') {
+            return null;
+        }
+        $w = explode(' ', $n);
+        $full = sales_name_key($w);
+        if (isset($byName[$full])) {
+            return $pick($byName[$full], $branch);
+        }
+        if (count($w) >= 2) {
+            $short = sales_name_key([$w[0], $w[1]]);
+            if (isset($byShort[$short])) {
+                return $pick($byShort[$short], $branch);
+            }
+            if (isset($byName[$short])) {
+                return $pick($byName[$short], $branch); // в Академии «Фамилия Имя», в отчёте с отчеством
+            }
+        }
+        return null;
+    };
+}
+
+// Сводка периода: участники по убыванию показателя (сумма, если она есть в файле, иначе количество)
+function sales_board(int $periodId): array
+{
+    $period = q('SELECT * FROM sales_periods WHERE id = ?', [$periodId])->fetch();
+    if (!$period) {
+        return [null, [], []];
+    }
+    $users = [];
+    foreach (q('SELECT id, name, branch FROM users') as $u) {
+        $users[(int)$u['id']] = $u;
+    }
+    $people = [];
+    $promos = [];
+    foreach (q('SELECT * FROM sales_rows WHERE period_id = ?', [$periodId]) as $r) {
+        $uid = $r['user_id'] !== null ? (int)$r['user_id'] : null;
+        $key = $uid !== null ? 'u' . $uid : 'n' . sales_norm($r['name']) . '|' . sales_norm($r['branch']);
+        if (!isset($people[$key])) {
+            $u = $uid !== null ? ($users[$uid] ?? null) : null;
+            $people[$key] = ['userId' => $uid, 'name' => $u ? $u['name'] : $r['name'],
+                             'branch' => $r['branch'] !== '' ? $r['branch'] : ($u ? (string)$u['branch'] : ''),
+                             'qty' => 0.0, 'amount' => 0.0, 'promos' => []];
+        }
+        $p = &$people[$key];
+        $p['qty'] += (float)$r['qty'];
+        $p['amount'] += (float)$r['amount'];
+        $promo = $r['promo'] !== '' ? $r['promo'] : 'Без названия акции';
+        if (!isset($p['promos'][$promo])) {
+            $p['promos'][$promo] = ['promo' => $promo, 'qty' => 0.0, 'amount' => 0.0];
+        }
+        $p['promos'][$promo]['qty'] += (float)$r['qty'];
+        $p['promos'][$promo]['amount'] += (float)$r['amount'];
+        unset($p);
+        if (!isset($promos[$promo])) {
+            $promos[$promo] = ['promo' => $promo, 'qty' => 0.0, 'amount' => 0.0, 'people' => []];
+        }
+        $promos[$promo]['qty'] += (float)$r['qty'];
+        $promos[$promo]['amount'] += (float)$r['amount'];
+        $promos[$promo]['people'][$key] = ($promos[$promo]['people'][$key] ?? 0) + (float)($period['metric'] === 'amount' ? $r['amount'] : $r['qty']);
+    }
+    $metric = $period['metric'];
+    $list = array_values(array_filter($people, function ($p) { return $p['qty'] > 0 || $p['amount'] > 0; }));
+    usort($list, function ($a, $b) use ($metric) {
+        return [$b[$metric], $b['qty'], $a['name']] <=> [$a[$metric], $a['qty'], $b['name']];
+    });
+    $place = 0;
+    $prev = null;
+    foreach ($list as $i => &$p) {
+        if ($prev === null || $p[$metric] < $prev) {
+            $place = $i + 1;
+            $prev = $p[$metric];
+        }
+        $p['place'] = $place;
+        $p['value'] = $p[$metric];
+        $p['promos'] = array_values($p['promos']);
+        usort($p['promos'], function ($a, $b) use ($metric) { return $b[$metric] <=> $a[$metric]; });
+    }
+    unset($p);
+    foreach ($promos as &$pr) {
+        arsort($pr['people']);
+        $leaderKey = array_key_first($pr['people']);
+        $pr['leader'] = $leaderKey !== null && isset($people[$leaderKey]) ? $people[$leaderKey]['name'] : '';
+        $pr['participants'] = count(array_filter($pr['people'], function ($v) { return $v > 0; }));
+        unset($pr['people']);
+    }
+    unset($pr);
+    $promos = array_values($promos);
+    usort($promos, function ($a, $b) use ($metric) { return $b[$metric] <=> $a[$metric]; });
+    return [$period, $list, $promos];
 }
 

@@ -1238,3 +1238,23 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 .ortho-note__tag { align-self: flex-start; display: inline-block; padding: 2px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font: 700 .7rem var(--font-head); letter-spacing: .06em; text-transform: uppercase; }
 .ortho-video--note .ortho-video__play { background: #6b4fa3; font: 700 .7rem var(--font-head); }
 .crumbs { overflow-wrap: anywhere; }
+
+/* ── Рейтинг продаж по акциям ── */
+.sales-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; }
+.sales-grid h2, .panel > h2 { font-size: 1.15rem; margin: 0 0 12px; }
+@media (max-width: 860px) { .sales-grid { grid-template-columns: 1fr; } }
+.sales-me { display: flex; align-items: center; gap: 14px; margin: 4px 0 12px; }
+.sales-me__place { display: grid; place-items: center; min-width: 56px; height: 56px; padding: 0 8px; border-radius: 16px; background: var(--accent-soft); color: var(--accent); font: 700 1.5rem var(--font-head); }
+.sales-me small { display: block; color: var(--muted); }
+.sales-promos { list-style: none; margin: 0 0 12px; padding: 0; }
+.sales-promos li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+.sales-promos li:last-child { border-bottom: 0; }
+.sales-promos li span { min-width: 0; overflow-wrap: anywhere; }
+.sales-promos li small { display: block; color: var(--muted); font-size: .8rem; }
+.sales-promos li b { white-space: nowrap; }
+.sales-table td:nth-child(n+4), .sales-table th:nth-child(n+4) { text-align: right; white-space: nowrap; }
+.prof-sales { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.prof-sales h3 { margin-bottom: 2px; }
+.modal__body--wide { width: min(820px, 94vw); box-sizing: border-box; }
+.modal:has(.modal__body--wide) { width: min(820px, 94vw); max-width: 94vw; }
+.sales-map select { min-width: 210px; }
