@@ -191,11 +191,16 @@ function schema(): array
             qty DOUBLE NOT NULL DEFAULT 0,
             amount DOUBLE NOT NULL DEFAULT 0
         )$tail",
+        // Рейтинг аптек по выполнению плана акций: исходный бланк (план на фармацевта, фармацевты, продажи) в JSON
+        "CREATE TABLE IF NOT EXISTS sales_reports (
+            period_id INT NOT NULL PRIMARY KEY,
+            data " . ($sqlite ? 'TEXT' : 'MEDIUMTEXT') . " NOT NULL
+        )$tail",
     ];
 }
 
 // Новые таблицы для уже установленной платформы: создаются один раз при первом запросе
-const SCHEMA_VERSION = '8';
+const SCHEMA_VERSION = '9';
 function migrate(): void
 {
     try {
@@ -767,5 +772,95 @@ function sales_board(int $periodId): array
     $promos = array_values($promos);
     usort($promos, function ($a, $b) use ($metric) { return $b[$metric] <=> $a[$metric]; });
     return [$period, $list, $promos];
+}
+
+// ─── Рейтинг аптек по выполнению плана акций (бланк руководства) ───
+// Ключ аптеки по названию: «Аптека № 7, г. Тирасполь…» → a7, «Фп №55, …» / «ФП №55» → fp55
+function pharm_key(string $s): string
+{
+    $s = mb_strtolower(str_replace(['ё', 'Ё'], 'е', $s));
+    if (preg_match('/(аптек\w*|ф\.?\s*п\.?|фармпункт\w*|аптечн\w*\s+пункт\w*)\s*№?\s*(\d+)/u', $s, $m)) {
+        return (preg_match('/^апте/u', $m[1]) ? 'a' : 'fp') . (int)$m[2];
+    }
+    return '';
+}
+
+// Расчёт по правилам отчёта руководства: план группы = план на фармацевта × фармацевтов аптеки;
+// «по количеству» = Σ min(факт; план) / Σ план; итоговый % = среднее min(факт/план; 100%) по группам;
+// бренд: «по ассортименту» = среднее зачётных процентов групп бренда по всем аптекам, оценка = минимум из двух.
+function sales_pharm_report(array $d): array
+{
+    $pharm = $d['pharmacies'] ?? [];
+    $groups = $d['groups'] ?? [];
+    $n = count($pharm);
+    $list = [];
+    foreach ($pharm as $k => $p) {
+        $cnt = (float)($p['pharmacists'] ?? 0);
+        $plan = $fact = $cred = 0.0;
+        $pcts = [];
+        $gl = [];
+        foreach ($groups as $g) {
+            $gp = (float)$g['plan1'] * $cnt;
+            $gf = (float)($g['fact'][$k] ?? 0);
+            $plan += $gp;
+            $fact += $gf;
+            $cred += min($gf, $gp);
+            if ($gp > 0) {
+                $pcts[] = min($gf / $gp, 1);
+            }
+            $gl[] = ['name' => $g['name'], 'brand' => $g['brand'] ?? '', 'plan' => round($gp, 3), 'fact' => round($gf, 3), 'pct' => $gp > 0 ? round($gf / $gp, 4) : null];
+        }
+        $name = trim((string)$p['name']);
+        $parts = explode(',', $name, 2);
+        $list[] = ['name' => $name, 'short' => trim($parts[0]), 'address' => trim($parts[1] ?? ''), 'key' => pharm_key($name), 'pharmacists' => $cnt,
+                   'plan' => round($plan, 3), 'fact' => round($fact, 3), 'pctOver' => $plan > 0 ? round($fact / $plan, 4) : 0,
+                   'pctQty' => $plan > 0 ? round($cred / $plan, 4) : 0, 'pctAvg' => $pcts ? round(array_sum($pcts) / count($pcts), 4) : 0, 'groups' => $gl];
+    }
+    usort($list, function ($a, $b) { return [$b['pctAvg'], $b['pctQty'], $a['name']] <=> [$a['pctAvg'], $a['pctQty'], $b['name']]; });
+    $place = 0;
+    $prev = null;
+    foreach ($list as $i => &$p) {
+        if ($prev === null || $p['pctAvg'] < $prev) {
+            $place = $i + 1;
+            $prev = $p['pctAvg'];
+        }
+        $p['place'] = $place;
+    }
+    unset($p);
+    $totalPh = array_sum(array_map(function ($p) { return (float)($p['pharmacists'] ?? 0); }, $pharm));
+    $brands = [];
+    $positions = [];
+    foreach ($groups as $g) {
+        $b = (string)($g['brand'] ?? '');
+        $gfact = 0.0;
+        if (!isset($brands[$b])) {
+            $brands[$b] = ['brand' => $b, 'plan' => 0.0, 'fact' => 0.0, 'credited' => 0.0, 'pcts' => [], 'groups' => 0];
+        }
+        $brands[$b]['groups']++;
+        foreach ($pharm as $k => $p) {
+            $gp = (float)$g['plan1'] * (float)($p['pharmacists'] ?? 0);
+            $gf = (float)($g['fact'][$k] ?? 0);
+            $gfact += $gf;
+            $brands[$b]['credited'] += min($gf, $gp);
+            if ($gp > 0) {
+                $brands[$b]['pcts'][] = min($gf / $gp, 1);
+            }
+        }
+        $gplan = (float)$g['plan1'] * $totalPh;
+        $brands[$b]['plan'] += $gplan;
+        $brands[$b]['fact'] += $gfact;
+        $pct = $gplan > 0 ? $gfact / $gplan : 0;
+        $positions[] = ['brand' => $b, 'name' => $g['name'], 'plan1' => (float)$g['plan1'], 'plan' => round($gplan, 3), 'fact' => round($gfact, 3), 'pct' => round($pct, 4),
+                        'zone' => $pct >= 0.5 ? 'top' : ($pct >= 0.3 ? 'mid' : 'low')];
+    }
+    $brands = array_values(array_map(function ($b) {
+        $q = $b['plan'] > 0 ? $b['credited'] / $b['plan'] : 0;
+        $a = $b['pcts'] ? array_sum($b['pcts']) / count($b['pcts']) : 0;
+        return ['brand' => $b['brand'], 'plan' => round($b['plan'], 3), 'fact' => round($b['fact'], 3), 'credited' => round($b['credited'], 3),
+                'pctQty' => round($q, 4), 'pctAssort' => round($a, 4), 'score' => round(min($q, $a), 4), 'groups' => $b['groups']];
+    }, $brands));
+    usort($brands, function ($a, $b) { return $b['score'] <=> $a['score']; });
+    usort($positions, function ($a, $b) { return $b['pct'] <=> $a['pct']; });
+    return ['pharmacies' => $list, 'brands' => $brands, 'positions' => $positions, 'groupsCount' => count($groups), 'pharmacists' => $totalPh];
 }
 
