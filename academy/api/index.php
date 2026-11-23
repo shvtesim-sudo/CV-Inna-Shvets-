@@ -292,28 +292,52 @@ if ($action === 'sales') {
     }
     $id = (int)($_GET['id'] ?? 0) ?: (int)$periods[0]['id'];
     $periodsOut = array_map(function ($x) { return ['id' => (int)$x['id'], 'title' => $x['title']]; }, $periods);
-    // Рейтинг аптек по бланку руководства
+    // Рейтинг по бланку руководства: аптеки × товарные группы или продавцы × товарные группы
     $rep = q('SELECT data FROM sales_reports WHERE period_id = ?', [$id])->fetchColumn();
     if ($rep !== false) {
         $pr = q('SELECT * FROM sales_periods WHERE id = ?', [$id])->fetch();
-        $r = sales_pharm_report(json_decode($rep, true) ?: []);
-        $myKey = pharm_key((string)$u['branch']);
+        $data = json_decode($rep, true) ?: [];
+        $viewer = in_array($u['role'], ['admin', 'manager'], true);
+        $isPlan = isset($data['people']);
+        $r = $isPlan ? sales_plan_people($data) : sales_pharm_report($data);
+        $sellers = null;
+        $myKey = pharm_key((string)$u['branch']) ?: pharm_group_key((string)$u['branch']);
+        if ($isPlan) {
+            $meS = null;
+            foreach ($r['sellers'] as $x) {
+                if ($x['userId'] === (int)$u['id']) {
+                    $meS = $x;
+                    if ($x['branch'] !== '') {
+                        $myKey = pharm_group_key($x['branch']);
+                    }
+                    break;
+                }
+            }
+            $pubS = function ($x) use ($u, $viewer) {
+                return ['place' => $x['place'], 'name' => $x['name'], 'branch' => $x['branch'], 'plan' => $x['plan'], 'fact' => $x['fact'],
+                        'pctQty' => $x['pctQty'], 'pctAvg' => $x['pctAvg'], 'done' => $x['done'],
+                        'isMe' => $x['userId'] === (int)$u['id'], 'linked' => $viewer ? $x['userId'] !== null : null];
+            };
+            $sellers = ['top' => array_map($pubS, array_slice($r['sellers'], 0, 10)), 'total' => count($r['sellers']),
+                        'me' => $meS ? $pubS($meS) + ['groups' => $meS['groups']] : null,
+                        'all' => $viewer ? array_map($pubS, $r['sellers']) : null, 'noBranch' => $r['noBranch']];
+        }
         $mine = null;
         foreach ($r['pharmacies'] as &$p) {
             $p['isMine'] = $myKey !== '' && $p['key'] === $myKey;
             if ($p['isMine']) {
                 $mine = $p;
             }
-            unset($p['groups'], $p['key']);
+            unset($p['groups'], $p['key'], $p['idx']);
         }
         unset($p);
         json_out([
             'periods' => $periodsOut,
-            'period' => ['id' => (int)$pr['id'], 'title' => $pr['title'], 'kind' => 'pharmacy', 'loaded' => strtotime($pr['created_at'] . ' UTC') * 1000],
+            'period' => ['id' => (int)$pr['id'], 'title' => $pr['title'], 'kind' => $isPlan ? 'plan' : 'pharmacy', 'loaded' => strtotime($pr['created_at'] . ' UTC') * 1000],
+            'sellers' => $sellers,
             'pharmacies' => $r['pharmacies'], 'brands' => $r['brands'], 'positions' => $r['positions'],
             'groupsCount' => $r['groupsCount'], 'pharmacists' => $r['pharmacists'], 'total' => count($r['pharmacies']),
-            'mine' => $mine, 'myBranch' => (string)$u['branch'],
-            'viewer' => in_array($u['role'], ['admin', 'manager'], true),
+            'mine' => $mine, 'myBranch' => (string)$u['branch'], 'viewer' => $viewer,
         ]);
     }
     [$period, $list, $promos] = sales_board($id);
@@ -326,6 +350,18 @@ if ($action === 'sales') {
                 'amount' => round($p['amount'], 2), 'value' => round($p['value'], 2), 'promoCount' => count($p['promos']),
                 'isMe' => $p['userId'] === (int)$u['id'], 'linked' => $viewer ? $p['userId'] !== null : null];
     };
+    // Аптеки — сумма продаж их сотрудников
+    $myKey = pharm_group_key((string)$u['branch']);
+    foreach ($list as $p) {
+        if ($p['userId'] === (int)$u['id'] && $p['branch'] !== '') {
+            $myKey = pharm_group_key($p['branch']);
+        }
+    }
+    $pharmBoard = array_map(function ($x) use ($myKey) {
+        $x['isMine'] = $myKey !== '' && $x['key'] === $myKey;
+        unset($x['key']);
+        return $x;
+    }, sales_people_pharm($list, $period['metric']));
     $me = null;
     foreach ($list as $p) {
         if ($p['userId'] === (int)$u['id']) {
@@ -341,6 +377,9 @@ if ($action === 'sales') {
         'total' => count($list),
         'promos' => array_map(function ($x) { return ['promo' => $x['promo'], 'qty' => round($x['qty'], 2), 'amount' => round($x['amount'], 2), 'leader' => $x['leader'], 'participants' => $x['participants']]; }, $promos),
         'all' => $viewer ? array_map($pub, $list) : null,
+        'pharmBoard' => $pharmBoard,
+        'myBranch' => (string)$u['branch'],
+        'viewer' => $viewer,
     ]);
 }
 
@@ -919,6 +958,60 @@ switch ($action) {
         }
         // Бланк руководства: аптеки × товарные группы
         $report = input()['report'] ?? null;
+        if (is_array($report) && isset($report['people'])) {
+            // Бланк по продавцам: колонки — сотрудники
+            $pp = [];
+            foreach ((array)$report['people'] as $p) {
+                $name = mb_substr(trim((string)($p['name'] ?? '')), 0, 160);
+                if ($name !== '') {
+                    $pp[] = ['name' => $name, 'branch' => mb_substr(trim((string)($p['branch'] ?? '')), 0, 160)];
+                }
+            }
+            $gs = [];
+            foreach ((array)($report['groups'] ?? []) as $g) {
+                $facts = array_map(function ($v) { return is_numeric($v) ? max(0.0, (float)$v) : 0.0; }, array_slice((array)($g['fact'] ?? []), 0, count($pp)));
+                $plan1 = (float)($g['plan1'] ?? 0);
+                $gname = mb_substr(trim((string)($g['name'] ?? '')), 0, 250);
+                if ($gname !== '' && $plan1 > 0) {
+                    $gs[] = ['brand' => mb_substr(trim((string)($g['brand'] ?? '')), 0, 120), 'name' => $gname, 'members' => (int)($g['members'] ?? 1), 'plan1' => $plan1, 'fact' => $facts];
+                }
+            }
+            if (count($pp) < 1 || count($gs) < 1 || count($pp) > 3000 || count($gs) > 500) {
+                fail(422, 'invalid', 'В бланке не найдены сотрудники или товарные группы с планом.');
+            }
+            $db = db();
+            $db->beginTransaction();
+            try {
+                if (!empty(input()['replace'])) {
+                    foreach (q('SELECT id FROM sales_periods WHERE title = ?', [$title])->fetchAll() as $old) {
+                        q('DELETE FROM sales_rows WHERE period_id = ?', [(int)$old['id']]);
+                        q('DELETE FROM sales_reports WHERE period_id = ?', [(int)$old['id']]);
+                        q('DELETE FROM sales_periods WHERE id = ?', [(int)$old['id']]);
+                    }
+                }
+                q("INSERT INTO sales_periods (title, metric, created_at) VALUES (?, 'plan', ?)", [$title, now()]);
+                $pid = (int)$db->lastInsertId();
+                q('INSERT INTO sales_reports (period_id, data) VALUES (?, ?)', [$pid, json_encode(['people' => $pp, 'groups' => $gs], JSON_UNESCAPED_UNICODE)]);
+                $db->commit();
+            } catch (Throwable $e) {
+                $db->rollBack();
+                throw $e;
+            }
+            $calc = sales_plan_people(['people' => $pp, 'groups' => $gs]);
+            $unmatched = [];
+            foreach ($calc['sellers'] as $x) {
+                if ($x['userId'] === null) {
+                    $unmatched[] = $x['name'] . ($x['branch'] !== '' ? ' — ' . $x['branch'] : '');
+                }
+            }
+            if (!empty(input()['announce'])) {
+                tg_broadcast('🏆 <b>Рейтинг продаж по акциям</b>' . "\n\n" . 'Опубликованы итоги: ' . h($title)
+                    . "\n\n" . 'Ваше место и место вашей аптеки: ' . site_url() . '#/sales');
+            }
+            json_out(['ok' => true, 'id' => $pid, 'kind' => 'plan', 'people' => count($pp), 'groups' => count($gs),
+                      'matched' => count($pp) - count($unmatched), 'unmatched' => array_slice($unmatched, 0, 300), 'unmatchedCount' => count($unmatched),
+                      'pharmacies' => count($calc['pharmacies']), 'noBranch' => $calc['noBranch']]);
+        }
         if (is_array($report)) {
             $ph = [];
             foreach ((array)($report['pharmacies'] ?? []) as $p) {

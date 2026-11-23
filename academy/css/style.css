@@ -1275,3 +1275,4 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 .sales-table small { display: block; }
 .table-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .sales-grid > *, .panel { min-width: 0; }
+.sales-tabs { margin-bottom: 10px; }
