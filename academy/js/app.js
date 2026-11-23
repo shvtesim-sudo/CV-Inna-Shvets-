@@ -1299,6 +1299,247 @@
     return token;
   }
 
+  /* ───────────── Рейтинг продаж по акциям ───────────── */
+  let sales = { data: null, id: 0 };
+  const fmtNum = (n) => Number(n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+  const salesVal = (x, metric) => (metric === 'amount' ? `${fmtNum(x.amount)} руб.` : `${fmtNum(x.qty)} шт.`);
+  const salesSub = (x, metric) => (metric === 'amount' ? (x.qty ? `${fmtNum(x.qty)} шт.` : '') : (x.amount ? `${fmtNum(x.amount)} руб.` : ''));
+
+  function viewSales() {
+    return `
+      <div class="wrap">
+        <div class="crumbs"><a href="#/">Главная</a> / Рейтинг продаж</div>
+        <div class="section__head"><div><h1 style="margin:0">Рейтинг продаж по акциям</h1>
+          <p>Итоги акций, которые выставляет руководство. Данные обновляются два раза в месяц.</p></div>
+          ${isAdmin() ? '<button class="btn btn--primary btn--sm" data-admin="sales">+ Загрузить продажи</button>' : ''}</div>
+        <div id="sales-body"><p class="muted">Загружаем рейтинг…</p></div>
+      </div>`;
+  }
+
+  async function loadSales(id) {
+    const box = document.getElementById('sales-body');
+    try {
+      sales.data = await call('sales' + (id ? '&id=' + id : ''));
+      sales.id = sales.data.period ? sales.data.period.id : 0;
+      renderSales();
+    } catch (e) { if (box) box.innerHTML = formError(e.message); }
+  }
+
+  function salesTopHtml(r, compact) {
+    const medal = ['🥇', '🥈', '🥉'];
+    const metric = r.period.metric;
+    return `<ol class="top-list${compact ? ' top-list--compact' : ''}">${r.top.map((x) => `
+        <li class="${x.isMe ? 'is-me' : ''}">
+          <span class="top-place" aria-label="${x.place} место">${medal[x.place - 1] || x.place}</span>
+          <span class="grow"><b>${esc(x.name)}</b>${x.isMe ? ' <span class="badge badge--done">это вы</span>' : ''}<small>${esc(x.branch || '')}${x.branch ? ' · ' : ''}${x.promoCount} ${plural(x.promoCount, 'акция', 'акции', 'акций')}${salesSub(x, metric) ? ' · ' + salesSub(x, metric) : ''}</small></span>
+          <span class="top-points"><b>${fmtNum(metric === 'amount' ? x.amount : x.qty)}</b><small>${metric === 'amount' ? 'руб.' : 'шт.'}</small></span>
+        </li>`).join('')}</ol>`;
+  }
+
+  function renderSales() {
+    const box = document.getElementById('sales-body');
+    const r = sales.data;
+    if (!box || !r) return;
+    if (!r.period) {
+      box.innerHTML = `<div class="empty">Рейтинг продаж пока не загружен.${isAdmin() ? ' Нажмите «+ Загрузить продажи» и выберите Excel-файл от руководства.' : ' Он появится, когда руководство подведёт итоги акций.'}</div>`;
+      return;
+    }
+    const metric = r.period.metric;
+    const me = r.me;
+    box.innerHTML = `
+      ${r.periods.length > 1 ? `<div class="filters" role="group" aria-label="Период">${r.periods.map((p) => `<button class="chip" data-sales-period="${p.id}" aria-pressed="${p.id === r.period.id}">${esc(p.title)}</button>`).join('')}</div>` : ''}
+      <p class="muted small">Период: <b>${esc(r.period.title)}</b> · участников: ${r.total} · рейтинг по ${metric === 'amount' ? 'сумме продаж' : 'количеству проданных упаковок'}</p>
+      <div class="sales-grid">
+        <section class="panel">
+          <h2>Топ-10</h2>
+          ${r.top.length ? salesTopHtml(r) : '<p class="muted">Нет данных.</p>'}
+          ${me && !r.top.some((x) => x.isMe) ? `<p class="top-me">Ваше место: <b>${me.place}</b> из ${r.total} · ${salesVal(me, metric)}</p>` : ''}
+        </section>
+        <section class="panel">
+          <h2>Мои продажи</h2>
+          ${me ? `<p class="sales-me"><span class="sales-me__place">${me.place}</span><span>место из ${r.total}<small>${salesVal(me, metric)}${salesSub(me, metric) ? ' · ' + salesSub(me, metric) : ''}</small></span></p>
+            <ul class="sales-promos">${me.promos.map((p) => `<li><span>${esc(p.promo)}</span><b>${salesVal(p, metric)}</b></li>`).join('')}</ul>`
+          : '<p class="muted">В этом периоде ваших продаж в файле нет. Если это ошибка — проверьте, что в личном кабинете указаны ФИО и аптека так же, как в отчёте руководства.</p>'}
+        </section>
+      </div>
+      ${r.promos.length ? `<section class="panel" style="margin-top:18px">
+        <h2>Акции периода</h2>
+        <ul class="sales-promos sales-promos--all">${r.promos.map((p) => `<li><span>${esc(p.promo)}<small>${p.participants} ${plural(p.participants, 'участник', 'участника', 'участников')}${p.leader ? ' · лидер: ' + esc(p.leader) : ''}</small></span><b>${salesVal(p, metric)}</b></li>`).join('')}</ul>
+      </section>` : ''}
+      ${r.all ? `<section class="panel" style="margin-top:18px">
+        <div class="section__head"><h2 style="margin:0">Все участники</h2>
+          <div class="btn-row"><button class="btn btn--ghost btn--sm" data-sales-csv>Скачать в Excel</button>${isAdmin() ? `<button class="btn btn--ghost btn--sm" data-sales-delete="${r.period.id}">Удалить период</button>` : ''}</div></div>
+        <div class="table-scroll"><table class="sales-table"><tr><th>Место</th><th>Сотрудник</th><th>Аптека</th><th>Акций</th><th>Шт.</th><th>Сумма, руб.</th></tr>
+        ${r.all.map((x) => `<tr><td>${x.place}</td><td>${esc(x.name)}${x.linked === false ? ' <span class="badge badge--warn" title="Не найден среди сотрудников Академии — не увидит свои продажи в кабинете">не найден</span>' : ''}</td><td>${esc(x.branch)}</td><td>${x.promoCount}</td><td>${fmtNum(x.qty)}</td><td>${fmtNum(x.amount)}</td></tr>`).join('')}</table></div>
+      </section>` : ''}`;
+  }
+
+  // Мои продажи — блок в личном кабинете
+  async function loadProfileSales() {
+    const box = document.getElementById('prof-sales');
+    if (!box) return;
+    try {
+      const r = await call('sales');
+      if (!r.period) return;
+      const metric = r.period.metric;
+      const me = r.me;
+      box.hidden = false;
+      box.innerHTML = `<h3>Мои продажи по акциям</h3>
+        <p class="muted small">${esc(r.period.title)}</p>
+        ${me ? `<p class="sales-me"><span class="sales-me__place">${me.place}</span><span>место из ${r.total}<small>${salesVal(me, metric)}</small></span></p>
+          <ul class="sales-promos">${me.promos.slice(0, 6).map((p) => `<li><span>${esc(p.promo)}</span><b>${salesVal(p, metric)}</b></li>`).join('')}</ul>`
+        : '<p class="muted small">В отчёте за этот период ваших продаж нет.</p>'}
+        <a class="btn btn--ghost btn--sm" href="#/sales">Весь рейтинг продаж</a>`;
+    } catch (e) { /* без блока */ }
+  }
+
+  // Excel читаем в браузере библиотекой SheetJS (загружается только при импорте)
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve();
+    return loadXlsx.p || (loadXlsx.p = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = resolve;
+      s.onerror = () => { loadXlsx.p = null; reject(new Error('Не удалось загрузить модуль чтения Excel. Проверьте интернет или сохраните файл как CSV.')); };
+      document.head.appendChild(s);
+    }));
+  }
+
+  const SALES_ROLES = [['', '— не загружать'], ['name', 'ФИО сотрудника'], ['login', 'Логин'], ['branch', 'Аптека'], ['promo', 'Акция / товар'], ['qty', 'Количество, шт.'], ['amount', 'Сумма, руб.'], ['promoCol', 'Продажи по акции (колонка = акция)']];
+  function guessRole(head) {
+    const h = norm(head);
+    if (/логин|login/.test(h)) return 'login';
+    if (/сумм|руб|лей|выручк|стоимост|оборот/.test(h)) return 'amount';
+    if (/кол-?во|колич|шт|упак|продано|qty/.test(h)) return 'qty';
+    if (/акци|товар|наименован|препарат|позици|номенклат/.test(h)) return 'promo';
+    if (/аптек|филиал|точк|подраздел|магазин|отделени/.test(h)) return 'branch';
+    if (/фио|ф\.и\.о|сотрудник|фармацевт|провизор|продав|работник|фамил|имя/.test(h)) return 'name';
+    return '';
+  }
+  const toNum = (v) => {
+    if (typeof v === 'number') return isFinite(v) ? v : 0;
+    const n = parseFloat(String(v || '').replace(/[\s ]/g, '').replace(/[^\d,.-]/g, '').replace(',', '.'));
+    return isFinite(n) ? n : 0;
+  };
+  function defaultSalesTitle() {
+    const d = new Date();
+    const m = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+    if (d.getDate() > 15) return `1–15 ${m[d.getMonth()]} ${d.getFullYear()}`;
+    const p = new Date(d.getFullYear(), d.getMonth(), 0); // последний день прошлого месяца
+    return `16–${p.getDate()} ${m[p.getMonth()]} ${p.getFullYear()}`;
+  }
+
+  function openSalesImport() {
+    modal.sales = null;
+    modal.innerHTML = `
+      <form id="sales-form" class="modal__body modal__body--wide">
+        <h2>Загрузка рейтинга продаж</h2>
+        <p class="muted small">Excel-файл от руководства (.xlsx, .xls или .csv). Сотрудники находятся по логину или по ФИО (при однофамильцах — по аптеке). Подходят оба вида таблиц: «одна строка — сотрудник и акция» и «сотрудники по строкам, акции по колонкам».</p>
+        <div class="field-row">
+          <div class="field"><label for="sales-title">Период</label><input id="sales-title" name="title" maxlength="120" required value="${esc(defaultSalesTitle())}"></div>
+          <div class="field"><label for="sales-file">Файл</label><input id="sales-file" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" required></div>
+        </div>
+        <div id="sales-map"></div>
+        <label class="check"><input type="checkbox" name="replace" checked> Если период с таким названием уже загружен — заменить</label>
+        <label class="check"><input type="checkbox" name="announce"> Сообщить всем в Telegram</label>
+        <div class="form-msg"></div>
+        <div class="btn-row"><button class="btn btn--primary">Загрузить</button><button type="button" class="btn btn--ghost" data-close>Отмена</button></div>
+      </form>`;
+    modal.showModal();
+    modal.querySelector('#sales-file').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      const box = modal.querySelector('#sales-map');
+      if (!file) return;
+      box.innerHTML = '<p class="muted small">Читаем файл…</p>';
+      try {
+        await loadXlsx();
+        const wb = window.XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        modal.sales = { wb, sheet: wb.SheetNames[0] };
+        salesMapRender();
+      } catch (err) { box.innerHTML = formError(err.message || 'Не удалось прочитать файл.'); }
+    });
+  }
+
+  function salesMapRender() {
+    const st = modal.sales;
+    const box = modal.querySelector('#sales-map');
+    const rows = window.XLSX.utils.sheet_to_json(st.wb.Sheets[st.sheet], { header: 1, raw: true, defval: '' })
+      .filter((r) => r.some((c) => String(c).trim() !== ''));
+    if (!rows.length) { box.innerHTML = formError('Лист пустой.'); return; }
+    // Строка заголовков — первая (из первых 15), где узнаются названия колонок
+    let hi = rows.slice(0, 15).findIndex((r) => r.filter((c) => guessRole(String(c))).length >= 2);
+    if (hi < 0) hi = 0;
+    const heads = rows[hi].map((c, i) => String(c).trim() || `Колонка ${i + 1}`);
+    const data = rows.slice(hi + 1);
+    let roles = heads.map(guessRole);
+    if (!roles.includes('qty') && !roles.includes('amount')) {
+      // Широкая таблица: числовые колонки без явной роли — это акции
+      roles = roles.map((r, i) => (r === '' && !/итог|всего|total|№|^n$/i.test(heads[i]) && data.length && data.filter((d) => typeof d[i] === 'number' || /^\s*[\d\s.,]+\s*$/.test(String(d[i]))).length >= data.length * 0.6 ? 'promoCol' : r));
+    }
+    st.heads = heads; st.data = data; st.roles = roles;
+    box.innerHTML = `
+      ${st.wb.SheetNames.length > 1 ? `<div class="field"><label for="sales-sheet">Лист</label><select id="sales-sheet">${st.wb.SheetNames.map((n) => `<option ${n === st.sheet ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>` : ''}
+      <p class="small"><b>Что в колонках?</b> Проверьте, что сайт понял файл правильно, и при необходимости поправьте.</p>
+      <div class="table-scroll"><table class="sales-map"><tr><th>Колонка в файле</th><th>Пример</th><th>Что это</th></tr>
+        ${heads.map((h, i) => `<tr><td>${esc(h)}</td><td class="muted small">${esc(data.slice(0, 3).map((d) => String(d[i] ?? '')).filter(Boolean).join(' · ').slice(0, 60))}</td>
+          <td><select data-sales-role="${i}">${SALES_ROLES.map(([v, l]) => `<option value="${v}" ${roles[i] === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}
+      </table></div>
+      <p class="muted small" id="sales-summary"></p>`;
+    const sheetSel = box.querySelector('#sales-sheet');
+    if (sheetSel) sheetSel.addEventListener('change', () => { st.sheet = sheetSel.value; salesMapRender(); });
+    box.querySelectorAll('[data-sales-role]').forEach((sel) => sel.addEventListener('change', () => { st.roles[Number(sel.dataset.salesRole)] = sel.value; salesSummary(); }));
+    salesSummary();
+  }
+
+  function salesRows() {
+    const st = modal.sales;
+    if (!st || !st.data) return [];
+    const col = (role) => st.roles.indexOf(role);
+    const [cName, cLogin, cBranch, cPromo, cQty, cAmount] = ['name', 'login', 'branch', 'promo', 'qty', 'amount'].map(col);
+    const promoCols = st.roles.map((r, i) => (r === 'promoCol' ? i : -1)).filter((i) => i >= 0);
+    const out = [];
+    st.data.forEach((d) => {
+      const name = cName >= 0 ? String(d[cName] ?? '').trim() : '';
+      const login = cLogin >= 0 ? String(d[cLogin] ?? '').trim() : '';
+      if (!name && !login) return;
+      if (/^(итог|всего|total)/i.test(name)) return;
+      const base = { name, login, branch: cBranch >= 0 ? String(d[cBranch] ?? '').trim() : '' };
+      if (promoCols.length) {
+        promoCols.forEach((i) => { const q = toNum(d[i]); if (q > 0) out.push({ ...base, promo: st.heads[i], qty: q, amount: 0 }); });
+      } else {
+        const qty = cQty >= 0 ? toNum(d[cQty]) : 0;
+        const amount = cAmount >= 0 ? toNum(d[cAmount]) : 0;
+        if (qty > 0 || amount > 0) out.push({ ...base, promo: cPromo >= 0 ? String(d[cPromo] ?? '').trim() : '', qty, amount });
+      }
+    });
+    return out;
+  }
+
+  function salesSummary() {
+    const el = modal.querySelector('#sales-summary');
+    if (!el) return;
+    const st = modal.sales;
+    const rows = salesRows();
+    const problems = [];
+    if (!st.roles.includes('name') && !st.roles.includes('login')) problems.push('выберите колонку с ФИО или логином');
+    if (!st.roles.includes('qty') && !st.roles.includes('amount') && !st.roles.includes('promoCol')) problems.push('выберите колонку с количеством или суммой (или отметьте колонки акций)');
+    const people = new Set(rows.map((r) => r.login || r.name)).size;
+    const promos = new Set(rows.map((r) => r.promo)).size;
+    el.innerHTML = problems.length ? `<span class="form-error">Нужно: ${problems.join('; ')}.</span>`
+      : `Будет загружено: <b>${rows.length}</b> ${plural(rows.length, 'строка', 'строки', 'строк')}, сотрудников — <b>${people}</b>, акций — <b>${promos}</b>.`;
+  }
+
+  function showSalesResult(r) {
+    modal.innerHTML = `
+      <div class="modal__body">
+        <h2>Рейтинг загружен</h2>
+        <p>Строк: <b>${r.rows}</b>. Найдено сотрудников Академии: <b>${r.matched}</b>. Рейтинг считается по ${r.metric === 'amount' ? 'сумме продаж' : 'количеству упаковок'}.</p>
+        ${r.unmatchedCount ? `<p class="note">Не найдены среди сотрудников: <b>${r.unmatchedCount}</b>. Они есть в рейтинге, но не увидят свои продажи в личном кабинете. Проверьте, совпадают ли ФИО в отчёте и в Академии (или добавьте в отчёт колонку с логином).</p>
+          <details><summary>Кто не найден</summary><ul class="small">${r.unmatched.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></details>` : '<p class="muted small">Все сотрудники из файла найдены.</p>'}
+        <div class="btn-row" style="margin-top:16px"><a class="btn btn--primary" href="#/sales" data-close>Открыть рейтинг</a><button class="btn btn--ghost" data-close>Закрыть</button></div>
+      </div>`;
+  }
+
   /* ───────────── Раздел «Ортопедия» (блоки по ассортименту Крейт) ───────────── */
   const ORTHO = window.ORTHO || { blocks: [] };
   const orthoBlocks = () => ORTHO.blocks.map(findCourse).filter(Boolean);
@@ -1654,6 +1895,7 @@
             ${accountPanel}
           </div>
           <div class="panel">
+            <div class="prof-sales" id="prof-sales" hidden></div>
             <h3>Курсы</h3>
             <ul class="row-list">${rows}</ul>
             ${externalHtml(state.external || [])}
@@ -1811,7 +2053,9 @@
             <button class="btn btn--primary btn--sm" data-admin="new">+ Сотрудник</button>
             <button class="btn btn--ghost btn--sm" data-admin="import">Импорт списка</button>
             <button class="btn btn--ghost btn--sm" data-admin="sheets">Логины по аптекам</button>
-            <button class="btn btn--ghost btn--sm" data-admin="results">Импорт результатов</button>` : ''}
+            <button class="btn btn--ghost btn--sm" data-admin="results">Импорт результатов</button>
+            <button class="btn btn--ghost btn--sm" data-admin="sales">Импорт продаж</button>` : ''}
+            <a class="btn btn--ghost btn--sm" href="#/sales">Рейтинг продаж</a>
             <a class="btn btn--ghost btn--sm" href="${API}?action=admin_export">Выгрузить в Excel</a>
           </div>
         </div>
@@ -2269,6 +2513,7 @@
     else if (page === 'login' && mode === 'server') html = viewLogin();
     else if (page === 'register' && mode === 'server' && selfRegister) html = viewRegister();
     else if (page === 'courses') html = viewCourses();
+    else if (page === 'sales' && mode === 'server') html = viewSales();
     else if (page === 'ortho' && id === 'note') html = viewOrthoNote(decodeURIComponent(n || ''));
     else if (page === 'ortho') html = viewOrtho();
     else if (page === 'law') { html = viewLaw({ buh: 'acc', pharm: 'pharm', local: 'local' }[id] || null); }
@@ -2295,6 +2540,8 @@
     if (page === 'ortho' || (page === 'course' && c)) loadOrthoVideos();
     if (page === 'lesson' || (page === 'ortho' && id === 'note')) labelLessonTables();
     if (page === 'materials' && mode === 'server') { if (mats.list) renderMaterials(); loadMaterials(); }
+    if (page === 'sales' && mode === 'server') loadSales(Number(id) || 0);
+    if (page === 'profile' && mode === 'server') loadProfileSales();
     if (page === 'events' && mode === 'server') { if (evs.data) renderEvents(); loadEvents(); }
     if (page === 'profile' && mode === 'server') renderTgPanel();
     if (page === 'drugs') { if (id === 'check') initCheck(); else initDrugs(); }
@@ -2313,7 +2560,7 @@
     document.body.classList.toggle('logged-in', !!user && mode !== 'error');
     document.querySelectorAll('[data-nav]').forEach((a) => {
       a.classList.toggle('active', a.dataset.nav === active);
-      a.hidden = loggedOut || (a.dataset.nav === 'admin' && !canViewAdmin()) || ((a.dataset.nav === 'materials' || a.dataset.nav === 'events') && mode !== 'server');
+      a.hidden = loggedOut || (a.dataset.nav === 'admin' && !canViewAdmin()) || (['materials', 'events', 'sales'].includes(a.dataset.nav) && mode !== 'server');
     });
     document.querySelector('.nav-logout').hidden = !(mode === 'server' && user);
     document.getElementById('nav').classList.remove('open');
@@ -2401,6 +2648,18 @@
       return;
     }
     if (t.hasAttribute('data-mat-new')) { openMaterialForm(null); return; }
+    if (t.dataset.salesPeriod) { loadSales(Number(t.dataset.salesPeriod)); return; }
+    if (t.hasAttribute('data-sales-csv') && sales.data && sales.data.all) {
+      const r = sales.data;
+      downloadCsv(`viva-academy-prodazhi-${translit(r.period.title).slice(0, 40)}.csv`, [['Место', 'Сотрудник', 'Аптека', 'Акций', 'Количество, шт.', 'Сумма, руб.', 'Найден в Академии', 'Период']]
+        .concat(r.all.map((x) => [x.place, x.name, x.branch, x.promoCount, x.qty, x.amount, x.linked ? 'да' : 'нет', r.period.title])));
+      return;
+    }
+    if (t.dataset.salesDelete) {
+      if (!confirm(`Удалить рейтинг продаж за «${sales.data.period.title}»?`)) return;
+      try { await call('admin_sales_delete', { id: Number(t.dataset.salesDelete) }); toast('Период удалён'); await loadSales(0); } catch (err) { toast(err.message); }
+      return;
+    }
     if (t.hasAttribute('data-conv-kick')) {
       t.disabled = true;
       try { await call('admin_conv_kick', {}); toast('Конвертер запущен — PDF будет готов через 2–3 минуты. Обновите страницу.'); }
@@ -2463,6 +2722,8 @@
       openImport();
     } else if (t.dataset.admin === 'results') {
       openResultsImport();
+    } else if (t.dataset.admin === 'sales') {
+      openSalesImport();
     } else if (t.dataset.admin === 'sheets') {
       sheets = null;
       openSheets();
@@ -2612,6 +2873,15 @@
         modal.close();
         toast(r.sent ? `Сохранено. Сообщение отправлено: ${r.sent}` : 'Сохранено');
         await loadEvents();
+        return;
+      }
+      if (formId === 'sales-form') {
+        const rows = salesRows();
+        if (!modal.sales) throw new Error('Выберите файл Excel.');
+        if (!rows.length) throw new Error('Не найдено строк с продажами: проверьте, какие колонки выбраны.');
+        const r = await call('admin_sales_import', { title: f.title.value.trim(), rows, replace: !!f.replace.checked, announce: !!f.announce.checked });
+        showSalesResult(r);
+        if (location.hash.startsWith('#/sales')) loadSales(r.id);
         return;
       }
       if (formId === 'conv-form') {

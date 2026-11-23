@@ -283,6 +283,42 @@ if ($action === 'top') {
     ]);
 }
 
+// Рейтинг продаж по акциям: топ-10 для всех, мои продажи, полный список — руководителям
+if ($action === 'sales') {
+    $u = require_user();
+    $periods = q('SELECT id, title, metric, created_at FROM sales_periods ORDER BY created_at DESC, id DESC')->fetchAll();
+    if (!$periods) {
+        json_out(['periods' => [], 'period' => null]);
+    }
+    $id = (int)($_GET['id'] ?? 0) ?: (int)$periods[0]['id'];
+    [$period, $list, $promos] = sales_board($id);
+    if (!$period) {
+        fail(404, 'not_found', 'Период не найден.');
+    }
+    $viewer = in_array($u['role'], ['admin', 'manager'], true);
+    $pub = function ($p) use ($u, $viewer) {
+        return ['place' => $p['place'], 'name' => $p['name'], 'branch' => $p['branch'], 'qty' => round($p['qty'], 2),
+                'amount' => round($p['amount'], 2), 'value' => round($p['value'], 2), 'promoCount' => count($p['promos']),
+                'isMe' => $p['userId'] === (int)$u['id'], 'linked' => $viewer ? $p['userId'] !== null : null];
+    };
+    $me = null;
+    foreach ($list as $p) {
+        if ($p['userId'] === (int)$u['id']) {
+            $me = $pub($p) + ['promos' => array_map(function ($x) { return ['promo' => $x['promo'], 'qty' => round($x['qty'], 2), 'amount' => round($x['amount'], 2)]; }, $p['promos'])];
+            break;
+        }
+    }
+    json_out([
+        'periods' => array_map(function ($x) { return ['id' => (int)$x['id'], 'title' => $x['title']]; }, $periods),
+        'period' => ['id' => (int)$period['id'], 'title' => $period['title'], 'metric' => $period['metric'], 'loaded' => strtotime($period['created_at'] . ' UTC') * 1000],
+        'top' => array_map($pub, array_slice($list, 0, 10)),
+        'me' => $me,
+        'total' => count($list),
+        'promos' => array_map(function ($x) { return ['promo' => $x['promo'], 'qty' => round($x['qty'], 2), 'amount' => round($x['amount'], 2), 'leader' => $x['leader'], 'participants' => $x['participants']]; }, $promos),
+        'all' => $viewer ? array_map($pub, $list) : null,
+    ]);
+}
+
 // Только чтение — GET, всё остальное — POST с CSRF-токеном
 $readOnly = in_array($action, ['admin_users', 'admin_export'], true);
 if ($method !== 'POST' && !$readOnly) {
@@ -846,6 +882,88 @@ switch ($action) {
         if ($code !== 204) {
             fail(502, 'github', 'GitHub не запустил конвертер (код ' . $code . '). Возможно, токен истёк — замените его в кабинете руководителя.');
         }
+        json_out(['ok' => true]);
+
+    // Загрузка рейтинга продаж из Excel (файл разбирается в браузере, сюда приходят готовые строки)
+    case 'admin_sales_import':
+        require_admin();
+        $title = str_in('title', 120);
+        $rows = input()['rows'] ?? null;
+        if ($title === '') {
+            fail(422, 'invalid', 'Укажите период, например «1–15 ноября 2026».');
+        }
+        if (!is_array($rows) || !$rows || count($rows) > 50000) {
+            fail(422, 'invalid', 'В файле не найдено строк с продажами.');
+        }
+        $num = function ($v) { return is_numeric($v) ? max(0.0, (float)$v) : 0.0; };
+        $clean = [];
+        foreach ($rows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $name = mb_substr(trim((string)($r['name'] ?? '')), 0, 160);
+            $login = mb_substr(trim((string)($r['login'] ?? '')), 0, 120);
+            if ($name === '' && $login === '') {
+                continue;
+            }
+            $qty = $num($r['qty'] ?? 0);
+            $amount = $num($r['amount'] ?? 0);
+            if ($qty <= 0 && $amount <= 0) {
+                continue;
+            }
+            $clean[] = [$name, $login, mb_substr(trim((string)($r['branch'] ?? '')), 0, 160), mb_substr(trim((string)($r['promo'] ?? '')), 0, 200), $qty, $amount];
+        }
+        if (!$clean) {
+            fail(422, 'invalid', 'Нет строк с продажами больше нуля. Проверьте, какие колонки выбраны как количество или сумма.');
+        }
+        $metric = 'qty';
+        foreach ($clean as $c) {
+            if ($c[5] > 0) {
+                $metric = 'amount';
+                break;
+            }
+        }
+        $match = sales_matcher();
+        $db = db();
+        $db->beginTransaction();
+        try {
+            if (!empty(input()['replace'])) {
+                foreach (q('SELECT id FROM sales_periods WHERE title = ?', [$title])->fetchAll() as $old) {
+                    q('DELETE FROM sales_rows WHERE period_id = ?', [(int)$old['id']]);
+                    q('DELETE FROM sales_periods WHERE id = ?', [(int)$old['id']]);
+                }
+            }
+            q('INSERT INTO sales_periods (title, metric, created_at) VALUES (?, ?, ?)', [$title, $metric, now()]);
+            $pid = (int)$db->lastInsertId();
+            $st = $db->prepare('INSERT INTO sales_rows (period_id, user_id, name, branch, promo, qty, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
+            $unmatched = [];
+            $matched = [];
+            foreach ($clean as [$name, $login, $branch, $promo, $qty, $amount]) {
+                $uid = $match($login, $name, $branch);
+                $st->execute([$pid, $uid, $name !== '' ? $name : $login, $branch, $promo, $qty, $amount]);
+                if ($uid === null) {
+                    $unmatched[($name !== '' ? $name : $login) . ($branch !== '' ? ' — ' . $branch : '')] = true;
+                } else {
+                    $matched[$uid] = true;
+                }
+            }
+            $db->commit();
+        } catch (Throwable $e) {
+            $db->rollBack();
+            throw $e;
+        }
+        if (!empty(input()['announce'])) {
+            tg_broadcast('🏆 <b>Рейтинг продаж по акциям</b>' . "\n\n" . 'Опубликованы итоги: ' . h($title)
+                . "\n\n" . 'Ваше место и продажи: ' . site_url() . '#/sales');
+        }
+        json_out(['ok' => true, 'id' => $pid, 'rows' => count($clean), 'metric' => $metric,
+                  'matched' => count($matched), 'unmatched' => array_slice(array_keys($unmatched), 0, 200), 'unmatchedCount' => count($unmatched)]);
+
+    case 'admin_sales_delete':
+        require_admin();
+        $id = (int)(input()['id'] ?? 0);
+        q('DELETE FROM sales_rows WHERE period_id = ?', [$id]);
+        q('DELETE FROM sales_periods WHERE id = ?', [$id]);
         json_out(['ok' => true]);
 
     case 'admin_tg_setup':
