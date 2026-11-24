@@ -391,10 +391,26 @@ function require_admin(): array
 function require_viewer(): array
 {
     $u = require_user();
-    if ($u['role'] !== 'admin' && $u['role'] !== 'manager') {
+    if (!in_array($u['role'], ['admin', 'manager', 'demo'], true)) {
         fail(403, 'forbidden', 'Доступно только руководителям.');
     }
     return $u;
+}
+
+// Демо-доступ: интерфейс руководителя только для просмотра, ФИО и логины сотрудников скрыты
+function demo_viewer(): bool
+{
+    static $d = null;
+    if ($d === null) {
+        $u = current_user();
+        $d = $u !== null && $u['role'] === 'demo';
+    }
+    return $d;
+}
+
+function demo_name($id): string
+{
+    return $id !== null ? 'Сотрудник №' . (int)$id : 'Сотрудник (нет в Академии)';
 }
 
 function public_user(array $u): array

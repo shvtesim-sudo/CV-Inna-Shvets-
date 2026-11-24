@@ -251,7 +251,7 @@ if ($action === 'event_regs') {
     $rows = q('SELECT u.name, u.login, u.branch, r.created_at, t.chat_id FROM event_regs r JOIN users u ON u.id = r.user_id
                LEFT JOIN tg_links t ON t.user_id = r.user_id WHERE r.event_id = ? ORDER BY u.branch, u.name', [(int)($_GET['id'] ?? 0)])->fetchAll();
     json_out(['people' => array_map(function ($r) {
-        return ['name' => $r['name'], 'login' => $r['login'], 'branch' => $r['branch'], 'at' => $r['created_at'], 'tg' => $r['chat_id'] !== null];
+        return ['name' => demo_viewer() ? 'Сотрудник' : $r['name'], 'login' => demo_viewer() ? '' : $r['login'], 'branch' => $r['branch'], 'at' => $r['created_at'], 'tg' => $r['chat_id'] !== null];
     }, $rows)]);
 }
 if ($action === 'tg_status') {
@@ -273,6 +273,9 @@ if ($action === 'top') {
     }
     $strip = function ($r) use ($u) {
         $r['isMe'] = $r['id'] === (int)$u['id'];
+        if (demo_viewer() && !$r['isMe']) {
+            $r['name'] = demo_name($r['id']);
+        }
         unset($r['id']);
         return $r;
     };
@@ -297,7 +300,7 @@ if ($action === 'sales') {
     if ($rep !== false) {
         $pr = q('SELECT * FROM sales_periods WHERE id = ?', [$id])->fetch();
         $data = json_decode($rep, true) ?: [];
-        $viewer = in_array($u['role'], ['admin', 'manager'], true);
+        $viewer = in_array($u['role'], ['admin', 'manager', 'demo'], true);
         $isPlan = isset($data['people']);
         $r = $isPlan ? sales_plan_people($data) : sales_pharm_report($data);
         $sellers = null;
@@ -314,7 +317,7 @@ if ($action === 'sales') {
                 }
             }
             $pubS = function ($x) use ($u, $viewer) {
-                return ['place' => $x['place'], 'name' => $x['name'], 'branch' => $x['branch'], 'plan' => $x['plan'], 'fact' => $x['fact'],
+                return ['place' => $x['place'], 'name' => demo_viewer() ? demo_name($x['userId']) : $x['name'], 'branch' => $x['branch'], 'plan' => $x['plan'], 'fact' => $x['fact'],
                         'pctQty' => $x['pctQty'], 'pctAvg' => $x['pctAvg'], 'done' => $x['done'],
                         'isMe' => $x['userId'] === (int)$u['id'], 'linked' => $viewer ? $x['userId'] !== null : null];
             };
@@ -344,9 +347,9 @@ if ($action === 'sales') {
     if (!$period) {
         fail(404, 'not_found', 'Период не найден.');
     }
-    $viewer = in_array($u['role'], ['admin', 'manager'], true);
+    $viewer = in_array($u['role'], ['admin', 'manager', 'demo'], true);
     $pub = function ($p) use ($u, $viewer) {
-        return ['place' => $p['place'], 'name' => $p['name'], 'branch' => $p['branch'], 'qty' => round($p['qty'], 2),
+        return ['place' => $p['place'], 'name' => demo_viewer() ? demo_name($p['userId']) : $p['name'], 'branch' => $p['branch'], 'qty' => round($p['qty'], 2),
                 'amount' => round($p['amount'], 2), 'value' => round($p['value'], 2), 'promoCount' => count($p['promos']),
                 'isMe' => $p['userId'] === (int)$u['id'], 'linked' => $viewer ? $p['userId'] !== null : null];
     };
@@ -375,7 +378,7 @@ if ($action === 'sales') {
         'top' => array_map($pub, array_slice($list, 0, 10)),
         'me' => $me,
         'total' => count($list),
-        'promos' => array_map(function ($x) { return ['promo' => $x['promo'], 'qty' => round($x['qty'], 2), 'amount' => round($x['amount'], 2), 'leader' => $x['leader'], 'participants' => $x['participants']]; }, $promos),
+        'promos' => array_map(function ($x) { return ['promo' => $x['promo'], 'qty' => round($x['qty'], 2), 'amount' => round($x['amount'], 2), 'leader' => demo_viewer() ? '' : $x['leader'], 'participants' => $x['participants']]; }, $promos),
         'all' => $viewer ? array_map($pub, $list) : null,
         'pharmBoard' => $pharmBoard,
         'myBranch' => (string)$u['branch'],
@@ -390,6 +393,11 @@ if ($method !== 'POST' && !$readOnly) {
 }
 if (!$readOnly) {
     check_csrf();
+}
+// Демо-доступ: только смотреть. Уроки и тесты можно пройти, но результат не сохраняется
+$demoUser = current_user();
+if (!$readOnly && $demoUser && $demoUser['role'] === 'demo' && !in_array($action, ['login', 'logout', 'lesson', 'quiz'], true)) {
+    fail(403, 'demo', 'Это демо-доступ: смотреть можно всё, а изменять — нельзя.');
 }
 
 switch ($action) {
@@ -443,6 +451,9 @@ switch ($action) {
         if (!$course || $idx < 0 || $idx >= $course['lessons']) {
             fail(422, 'invalid', 'Неизвестный урок.');
         }
+        if ($u['role'] === 'demo') {
+            json_out(['progress' => user_progress((int)$u['id'])]);
+        }
         $exists = q('SELECT 1 FROM lesson_progress WHERE user_id = ? AND course_id = ? AND lesson_idx = ?',
                     [$u['id'], str_in('course', 40), $idx])->fetchColumn();
         if (!$exists) {
@@ -469,6 +480,9 @@ switch ($action) {
         $score = $correct / $total;
         $passed = $score >= (float)config()['pass_score'];
 
+        if ($u['role'] === 'demo') {
+            json_out(['correct' => $correct, 'total' => $total, 'passed' => $passed, 'demo' => true, 'progress' => user_progress((int)$u['id'])]);
+        }
         $prev = q('SELECT * FROM quiz_results WHERE user_id = ? AND course_id = ?', [$u['id'], $cid])->fetch();
         if ($prev) {
             $passedAt = $prev['passed_at'] ?: ($passed ? now() : null);
@@ -535,6 +549,10 @@ switch ($action) {
         }
         $users = [];
         foreach (q('SELECT * FROM users ORDER BY name') as $r) {
+            if ($viewer['role'] === 'demo' && (int)$r['id'] !== (int)$viewer['id']) {
+                $r['name'] = demo_name((int)$r['id']);
+                $r['login'] = '—';
+            }
             $users[] = public_user($r) + [
                 'active' => (bool)$r['active'],
                 'createdAt' => $r['created_at'],
@@ -554,7 +572,7 @@ switch ($action) {
         $id = (int)(input()['id'] ?? 0);
         $login = mb_strtolower(str_in('login'));
         $name = str_in('name');
-        $role = in_array(str_in('role'), ['admin', 'manager'], true) ? str_in('role') : 'user';
+        $role = in_array(str_in('role'), ['admin', 'manager', 'demo'], true) ? str_in('role') : 'user';
         $active = !empty(input()['active']) ? 1 : 0;
         $password = (string)(input()['password'] ?? '');
         if (!valid_login($login) || $name === '') {
@@ -695,7 +713,9 @@ switch ($action) {
         json_out(['ok' => true]);
 
     case 'admin_export':
-        require_viewer();
+        if (require_viewer()['role'] === 'demo') {
+            fail(403, 'demo', 'В демо-доступе выгрузка с данными сотрудников недоступна.');
+        }
         $list = courses();
         $lessons = [];
         foreach (q('SELECT user_id, course_id, COUNT(*) AS n FROM lesson_progress GROUP BY user_id, course_id') as $r) {

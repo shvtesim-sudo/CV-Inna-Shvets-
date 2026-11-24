@@ -129,7 +129,7 @@
     if (mode === 'server') {
       const r = await call('quiz', { course: c.id, answers });
       applyProgress(r.progress);
-      return { correct: r.correct, total: r.total, passed: r.passed };
+      return { correct: r.correct, total: r.total, passed: r.passed, demo: !!r.demo };
     }
     const correct = c.quiz.reduce((s, q, i) => s + (answers[i] === q.correct ? 1 : 0), 0);
     const score = correct / c.quiz.length;
@@ -165,8 +165,9 @@
   const pct = (x) => Math.round(x * 100);
   const isAdmin = () => mode === 'server' && user && user.role === 'admin';
   // Руководитель видит кабинет руководителя и выгрузку, но ничего не меняет
-  const canViewAdmin = () => mode === 'server' && user && (user.role === 'admin' || user.role === 'manager');
-  const ROLE_LABEL = { admin: ' · администратор', manager: ' · руководитель (просмотр)' };
+  const canViewAdmin = () => mode === 'server' && user && ['admin', 'manager', 'demo'].includes(user.role);
+  const isDemo = () => mode === 'server' && user && user.role === 'demo';
+  const ROLE_LABEL = { admin: ' · администратор', manager: ' · руководитель (просмотр)', demo: ' · демо-доступ' };
 
   function courseProgress(c) {
     if (!isQuizPassed(c) && legacyRes(c)) return 100;
@@ -2089,9 +2090,9 @@
           <div class="quiz result ${r.passed ? 'pass' : ''}">
             <div class="result__score">${Math.round((r.correct / r.total) * 100)}%</div>
             <h2>${r.passed ? 'Тест пройден!' : 'Почти получилось'}</h2>
-            <p class="muted">Правильных ответов: ${r.correct} из ${r.total}. ${r.passed ? 'Сертификат готов.' : `Для сертификата нужно от ${pct(passScore)}%. Повторите уроки и попробуйте ещё раз.`}</p>
+            <p class="muted">Правильных ответов: ${r.correct} из ${r.total}. ${r.demo ? 'Демо-доступ: результат не сохраняется, сертификат не выдаётся.' : r.passed ? 'Сертификат готов.' : `Для сертификата нужно от ${pct(passScore)}%. Повторите уроки и попробуйте ещё раз.`}</p>
             <div class="btn-row" style="justify-content:center">
-              ${r.passed ? `<a class="btn btn--primary" href="#/certificate/${c.id}">Получить сертификат</a>` : `<button class="btn btn--primary" data-retry="${c.id}">Пройти заново</button>`}
+              ${r.passed && !r.demo ? `<a class="btn btn--primary" href="#/certificate/${c.id}">Получить сертификат</a>` : `<button class="btn btn--primary" data-retry="${c.id}">Пройти заново</button>`}
               <a class="btn btn--ghost" href="#/course/${c.id}">К курсу</a>
             </div>
           </div>
@@ -2365,10 +2366,10 @@
             <button class="btn btn--ghost btn--sm" data-admin="results">Импорт результатов</button>
             <button class="btn btn--ghost btn--sm" data-admin="sales">Импорт продаж</button>` : ''}
             <a class="btn btn--ghost btn--sm" href="#/sales">Рейтинги</a>
-            <a class="btn btn--ghost btn--sm" href="${API}?action=admin_export">Выгрузить в Excel</a>
+            ${isDemo() ? '' : `<a class="btn btn--ghost btn--sm" href="${API}?action=admin_export">Выгрузить в Excel</a>`}
           </div>
         </div>
-        ${isAdmin() ? '' : '<p class="muted small">Режим просмотра: вы видите результаты всех сотрудников и можете выгрузить их в Excel. Изменения вносит администратор.</p>'}
+        ${isAdmin() ? '' : isDemo() ? '<p class="note">Демо-доступ: так выглядит кабинет руководителя. Имена и логины сотрудников скрыты, изменить ничего нельзя.</p>' : '<p class="muted small">Режим просмотра: вы видите результаты всех сотрудников и можете выгрузить их в Excel. Изменения вносит администратор.</p>'}
         <div id="admin-body"><p class="muted">Загружаем данные…</p></div>
       </div>`;
   }
@@ -2576,6 +2577,7 @@
             <option value="user" ${u.role === 'user' ? 'selected' : ''}>Сотрудник</option>
             <option value="manager" ${u.role === 'manager' ? 'selected' : ''}>Руководитель — только просмотр результатов</option>
             <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Администратор — полный доступ</option>
+            <option value="demo" ${u.role === 'demo' ? 'selected' : ''}>Демо — показать сайт: интерфейс руководителя, ФИО скрыты, изменить ничего нельзя</option>
           </select></div>
           <label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Доступ разрешён</label>
         </div>
