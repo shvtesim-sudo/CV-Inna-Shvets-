@@ -812,7 +812,7 @@ function sales_pharm_report(array $d): array
         }
         $name = trim((string)$p['name']);
         $parts = explode(',', $name, 2);
-        $list[] = ['name' => $name, 'short' => trim($parts[0]), 'address' => trim($parts[1] ?? ''), 'key' => pharm_key($name), 'pharmacists' => $cnt,
+        $list[] = ['idx' => $k, 'name' => $name, 'short' => trim($parts[0]), 'address' => trim($parts[1] ?? ''), 'key' => pharm_key($name), 'pharmacists' => $cnt,
                    'plan' => round($plan, 3), 'fact' => round($fact, 3), 'pctOver' => $plan > 0 ? round($fact / $plan, 4) : 0,
                    'pctQty' => $plan > 0 ? round($cred / $plan, 4) : 0, 'pctAvg' => $pcts ? round(array_sum($pcts) / count($pcts), 4) : 0, 'groups' => $gl];
     }
@@ -862,5 +862,112 @@ function sales_pharm_report(array $d): array
     usort($brands, function ($a, $b) { return $b['score'] <=> $a['score']; });
     usort($positions, function ($a, $b) { return $b['pct'] <=> $a['pct']; });
     return ['pharmacies' => $list, 'brands' => $brands, 'positions' => $positions, 'groupsCount' => count($groups), 'pharmacists' => $totalPh];
+}
+
+// Ключ аптеки для группировки сотрудников: номер аптеки/ФП, иначе название как есть
+function pharm_group_key(string $branch): string
+{
+    $k = pharm_key($branch);
+    return $k !== '' ? $k : (sales_norm($branch) !== '' ? 'n' . sales_norm($branch) : '');
+}
+
+// Бланк по продавцам: колонки — сотрудники (ФИО), план на 1 фармацевта у каждого свой.
+// Продавцы считаются по тем же правилам, что и аптеки; аптека = сумма её продавцов (план × число продавцов).
+function sales_plan_people(array $d): array
+{
+    $people = array_values($d['people'] ?? []);
+    $groups = $d['groups'] ?? [];
+    $match = sales_matcher();
+    $users = [];
+    foreach (q('SELECT id, name, branch FROM users') as $u) {
+        $users[(int)$u['id']] = $u;
+    }
+    $info = [];
+    foreach ($people as $k => $p) {
+        $name = trim((string)($p['name'] ?? ''));
+        $branch = trim((string)($p['branch'] ?? ''));
+        $uid = $match('', $name, $branch);
+        if ($branch === '' && $uid !== null && isset($users[$uid])) {
+            $branch = trim((string)$users[$uid]['branch']);
+        }
+        $info[$k] = ['name' => $name, 'branch' => $branch, 'userId' => $uid];
+    }
+    $pr = sales_pharm_report(['pharmacies' => array_map(function ($p) { return ['name' => str_replace(',', ' ', $p['name']), 'pharmacists' => 1]; }, $info), 'groups' => $groups]);
+    $sellers = [];
+    foreach ($pr['pharmacies'] as $x) {
+        $i = $info[$x['idx']];
+        $sellers[] = ['place' => $x['place'], 'name' => $i['name'], 'branch' => $i['branch'], 'userId' => $i['userId'],
+                      'plan' => $x['plan'], 'fact' => $x['fact'], 'pctOver' => $x['pctOver'], 'pctQty' => $x['pctQty'], 'pctAvg' => $x['pctAvg'],
+                      'done' => count(array_filter($x['groups'], function ($g) { return $g['pct'] !== null && $g['pct'] >= 1; })), 'groups' => $x['groups']];
+    }
+    // Аптеки: складываем продавцов с одинаковой аптекой
+    $ph = [];
+    foreach ($info as $k => $i) {
+        $key = pharm_group_key($i['branch']);
+        if ($key === '') {
+            continue;
+        }
+        if (!isset($ph[$key])) {
+            $ph[$key] = ['name' => $i['branch'], 'cols' => []];
+        }
+        $ph[$key]['cols'][] = $k;
+    }
+    $ph = array_values($ph);
+    $gs = [];
+    foreach ($groups as $g) {
+        $f = [];
+        foreach ($ph as $x) {
+            $sum = 0.0;
+            foreach ($x['cols'] as $c) {
+                $sum += (float)($g['fact'][$c] ?? 0);
+            }
+            $f[] = $sum;
+        }
+        $gs[] = ['fact' => $f] + $g;
+    }
+    $ar = $ph ? sales_pharm_report(['pharmacies' => array_map(function ($x) { return ['name' => $x['name'], 'pharmacists' => count($x['cols'])]; }, $ph), 'groups' => $gs]) : null;
+    foreach ($ar ? $ar['pharmacies'] : [] as $j => $x) {
+        $ar['pharmacies'][$j]['key'] = pharm_group_key($ph[$x['idx']]['name']);
+    }
+    return [
+        'sellers' => $sellers,
+        'noBranch' => count(array_filter($info, function ($i) { return $i['branch'] === ''; })),
+        'pharmacies' => $ar ? $ar['pharmacies'] : [],
+        // Бренды и позиции — по всей сети продавцов
+        'brands' => $pr['brands'], 'positions' => $pr['positions'], 'groupsCount' => $pr['groupsCount'], 'pharmacists' => count($people),
+    ];
+}
+
+// Таблица продаж по сотрудникам (без плана): аптека = сумма продаж её сотрудников
+function sales_people_pharm(array $list, string $metric): array
+{
+    $ph = [];
+    foreach ($list as $p) {
+        $key = pharm_group_key((string)$p['branch']);
+        if ($key === '') {
+            continue;
+        }
+        if (!isset($ph[$key])) {
+            $ph[$key] = ['key' => $key, 'name' => (string)$p['branch'], 'people' => 0, 'qty' => 0.0, 'amount' => 0.0];
+        }
+        $ph[$key]['people']++;
+        $ph[$key]['qty'] += (float)$p['qty'];
+        $ph[$key]['amount'] += (float)$p['amount'];
+    }
+    $ph = array_values($ph);
+    usort($ph, function ($a, $b) use ($metric) { return [$b[$metric], $a['name']] <=> [$a[$metric], $b['name']]; });
+    $place = 0;
+    $prev = null;
+    foreach ($ph as $i => &$x) {
+        if ($prev === null || $x[$metric] < $prev) {
+            $place = $i + 1;
+            $prev = $x[$metric];
+        }
+        $x['place'] = $place;
+        $x['qty'] = round($x['qty'], 2);
+        $x['amount'] = round($x['amount'], 2);
+    }
+    unset($x);
+    return $ph;
 }
 

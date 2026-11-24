@@ -1310,9 +1310,9 @@
   function viewSales() {
     return `
       <div class="wrap">
-        <div class="crumbs"><a href="#/">Главная</a> / Рейтинг продаж</div>
-        <div class="section__head"><div><h1 style="margin:0">Рейтинг продаж по акциям</h1>
-          <p>Выполнение плана по акциям, которые выставляет руководство. Данные обновляются два раза в месяц.</p></div>
+        <div class="crumbs"><a href="#/">Главная</a> / Рейтинги</div>
+        <div class="section__head"><div><h1 style="margin:0">Рейтинги</h1>
+          <p>Обучение — по результатам тестов. Продавцы и аптеки — по выполнению плана акций, который выставляет руководство; данные обновляются два раза в месяц.</p></div>
           ${isAdmin() ? '<button class="btn btn--primary btn--sm" data-admin="sales">+ Загрузить продажи</button>' : ''}</div>
         <div id="sales-body"><p class="muted">Загружаем рейтинг…</p></div>
       </div>`;
@@ -1344,27 +1344,46 @@
   const sheetRows = (wb, name) => window.XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: '' });
   const cellTxt = (v) => String(v ?? '').trim();
   const isEmpty = (v) => v === null || v === undefined || String(v).trim() === '';
+  const PHARM_RE = /(аптек\S*|ф\.?\s*п\.?|фармпункт\S*)\s*№?\s*\d+/i;
+  // Колонки бланка — аптеки («Аптека №7, г. …», «Фп №55») или сотрудники (ФИО, можно с аптекой: «Иванова Анна Петровна, Аптека №7»)
   function parseBlank(wb) {
     for (const sn of wb.SheetNames) {
       const rows = sheetRows(wb, sn);
-      const hi = rows.findIndex((r, i) => /^бренд$/i.test(cellTxt(r[0])) && rows[i + 1] && /^номенклатура$/i.test(cellTxt(rows[i + 1][0])));
+      const hi = rows.findIndex((r) => /^бренд$/i.test(cellTxt(r[0])));
       if (hi < 0) continue;
       if (!/план/i.test(cellTxt(rows[hi][1]))) return { noPlan: true }; // выгрузка продаж из 1С без плана
       const cols = [];
-      rows[hi].forEach((v, j) => { if (j >= 2 && !isEmpty(v) && !/%|выполнен/i.test(cellTxt(v))) cols.push(j); });
+      rows[hi].forEach((v, j) => { if (j >= 2 && !isEmpty(v) && !/%|выполнен|^итог|^всего/i.test(cellTxt(v))) cols.push(j); });
       if (!cols.length) continue;
-      const pharmacies = cols.map((j) => ({ name: cellTxt(rows[hi][j]), pharmacists: toNum(rows[hi + 1][j]) }));
+      // Служебные строки под заголовком: «Номенклатура» (число фармацевтов), «Аптека» (аптека сотрудника)
+      let start = hi + 1;
+      let counts = null;
+      let branchRow = null;
+      while (rows[start] && /^(номенклатура|аптека|аптеки|подразделение|филиал|точка)/i.test(cellTxt(rows[start][0]))) {
+        if (/^номенклатура/i.test(cellTxt(rows[start][0]))) counts = rows[start]; else branchRow = rows[start];
+        start += 1;
+      }
+      const heads = cols.map((j) => cellTxt(rows[hi][j]));
+      const isPeople = heads.filter((h) => PHARM_RE.test(h) && !/[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(вна|вич|чна|ична|кызы|оглы)\b/.test(h)).length < heads.length / 2;
+      // Аптека над ФИО (объединённые ячейки) — переносим вправо
+      let above = null;
+      if (isPeople && hi > 0) {
+        let last = '';
+        above = cols.map((j) => { const v = cellTxt(rows[hi - 1][j]); if (v) last = v; return last; });
+        if (!above.some((v) => PHARM_RE.test(v))) above = null;
+      }
       const groups = [];
       let brand = '';
       let cur = null;
       const close = () => { if (cur) groups.push(cur); cur = null; };
-      for (const r of rows.slice(hi + 2)) {
+      for (const r of rows.slice(start)) {
         const name = cellTxt(r[0]);
         const vals = cols.map((j) => toNum(r[j]));
         if (!name) { // итог группы «все формы»
           if (cur) { if (cur.members > 1) cur.name += ' — все формы'; cur.fact = vals; close(); }
           continue;
         }
+        if (/^(итог|всего)/i.test(name)) { close(); continue; }
         const plan = cellTxt(r[1]);
         if (plan) {
           close();
@@ -1377,7 +1396,22 @@
         if (cur) { cur.members += 1; cur.fact = cur.fact.map((v, k) => v + vals[k]); }
       }
       close();
-      if (groups.length) return { sheet: sn, pharmacies, groups: groups.filter((g) => g.plan1 > 0) };
+      if (!groups.length) continue;
+      const out = { sheet: sn, groups: groups.filter((g) => g.plan1 > 0) };
+      if (!isPeople) {
+        out.pharmacies = cols.map((j, k) => ({ name: heads[k], pharmacists: counts ? toNum(counts[j]) : 1 }));
+        return out;
+      }
+      out.people = cols.map((j, k) => {
+        let name = heads[k];
+        let branch = '';
+        const m = name.match(PHARM_RE);
+        if (m) { branch = name.slice(m.index).replace(/[)\]]\s*$/, '').trim(); name = name.slice(0, m.index).replace(/[\s,;:(\[–—-]+$/, '').trim(); }
+        if (!branch && branchRow) branch = cellTxt(branchRow[j]);
+        if (!branch && above) branch = above[k];
+        return { name, branch };
+      });
+      return out;
     }
     return null;
   }
@@ -1416,7 +1450,6 @@
     const myGroups = mine ? mine.groups.slice().sort((a, b) => (a.pct ?? 9) - (b.pct ?? 9)) : [];
     const done = myGroups.filter((g) => g.pct >= 1).length;
     box.innerHTML = `
-      ${r.periods.length > 1 ? `<div class="filters" role="group" aria-label="Период">${r.periods.map((p) => `<button class="chip" data-sales-period="${p.id}" aria-pressed="${p.id === r.period.id}">${esc(p.title)}</button>`).join('')}</div>` : ''}
       <p class="muted small">Период: <b>${esc(r.period.title)}</b> · аптек: ${r.total} · фармацевтов: ${fmtNum(r.pharmacists)} · товарных групп: ${r.groupsCount}.
         Рейтинг — по итоговому проценту: среднее выполнение плана по товарным группам (каждая группа засчитывается не больше чем на 100%). План — на месяц, факт — за период.</p>
       <div class="sales-grid">
@@ -1458,29 +1491,97 @@
       </section>
       <section class="panel" style="margin-top:18px">
         <div class="section__head"><h2 style="margin:0">Все аптеки</h2>
-          <div class="btn-row">${r.viewer ? '<button class="btn btn--ghost btn--sm" data-sales-csv>Скачать в Excel</button>' : ''}${isAdmin() ? `<button class="btn btn--ghost btn--sm" data-sales-delete="${r.period.id}">Удалить период</button>` : ''}</div></div>
-        <div class="table-scroll"><table class="sales-table"><tr><th>Место</th><th>Аптека</th><th>Фарм.</th><th>План, уп.</th><th>Факт, уп.</th><th>По количеству</th><th>Итог</th></tr>
+          <div class="btn-row">${r.viewer ? '<button class="btn btn--ghost btn--sm" data-sales-csv="pharm">Скачать в Excel</button>' : ''}${isAdmin() ? `<button class="btn btn--ghost btn--sm" data-sales-delete="${r.period.id}">Удалить период</button>` : ''}</div></div>
+        <div class="table-scroll"><table class="sales-table"><tr><th>Место</th><th>Аптека</th><th>${r.period.kind === 'plan' ? 'Продавцов' : 'Фарм.'}</th><th>План, уп.</th><th>Факт, уп.</th><th>По количеству</th><th>Итог</th></tr>
           ${ph.map((x) => `<tr class="${x.isMine ? 'is-me' : ''}"><td>${x.place}</td><td>${esc(x.short)}<small class="muted"> ${esc(x.address)}</small></td><td>${fmtNum(x.pharmacists)}</td><td>${fmtNum(x.plan)}</td><td>${fmtNum(x.fact)}</td><td>${pct1(x.pctQty)}</td><td><b>${pct1(x.pctAvg)}</b></td></tr>`).join('')}</table></div>
       </section>`;
   }
 
-  function renderSales() {
-    const box = document.getElementById('sales-body');
-    const r = sales.data;
-    if (!box || !r) return;
-    if (r.period && r.period.kind === 'pharmacy') { renderPharmSales(box, r); return; }
-    if (!r.period) {
-      box.innerHTML = `<div class="empty">Рейтинг продаж пока не загружен.${isAdmin() ? ' Нажмите «+ Загрузить продажи» и выберите Excel-файл от руководства.' : ' Он появится, когда руководство подведёт итоги акций.'}</div>`;
-      return;
-    }
+  // Продавцы по бланку с планом: личный план = план на 1 фармацевта по каждой товарной группе
+  function renderPlanSellers(box, r) {
+    const medal = ['🥇', '🥈', '🥉'];
+    const S = r.sellers;
+    const me = S.me;
+    const myGroups = me ? me.groups.slice().sort((a, b) => (a.pct ?? 9) - (b.pct ?? 9)) : [];
+    box.innerHTML = `
+      <p class="muted small">Период: <b>${esc(r.period.title)}</b> · продавцов: ${S.total} · товарных групп: ${r.groupsCount}.
+        Рейтинг — по итоговому проценту выполнения личного плана: среднее по товарным группам (каждая засчитывается не больше чем на 100%).</p>
+      <div class="sales-grid">
+        <section class="panel">
+          <h2>Топ-10 продавцов</h2>
+          <ol class="top-list">${S.top.map((x) => `
+            <li class="${x.isMe ? 'is-me' : ''}">
+              <span class="top-place" aria-label="${x.place} место">${medal[x.place - 1] || x.place}</span>
+              <span class="grow"><b>${esc(x.name)}</b>${x.isMe ? ' <span class="badge badge--done">это вы</span>' : ''}<small>${esc(x.branch || '')}${x.branch ? ' · ' : ''}по количеству ${pct1(x.pctQty)} · ${fmtNum(x.fact)} из ${fmtNum(x.plan)} уп.</small></span>
+              <span class="top-points"><b>${pct1(x.pctAvg)}</b><small>выполнение</small></span>
+            </li>`).join('')}</ol>
+          ${me && me.place > 10 ? `<p class="top-me">Ваше место: <b>${me.place}</b> из ${S.total} · ${pct1(me.pctAvg)}</p>` : ''}
+        </section>
+        <section class="panel">
+          <h2>Мои продажи</h2>
+          ${me ? `<p class="sales-me"><span class="sales-me__place">${me.place}</span><span>место из ${S.total}<small>${esc(me.branch || '')}</small></span></p>
+            <div class="sales-kpi">
+              <div><b>${pct1(me.pctAvg)}</b><span>итоговый процент</span></div>
+              <div><b>${pct1(me.pctQty)}</b><span>по количеству</span></div>
+              <div><b>${fmtNum(me.fact)}</b><span>из ${fmtNum(me.plan)} уп.</span></div>
+            </div>
+            <p class="small">Выполнено групп: <b>${me.done}</b> из ${myGroups.length}.</p>
+            <details class="sales-groups"${myGroups.length <= 12 ? ' open' : ''}><summary>Мои товарные группы — сначала те, где план выполнен меньше всего</summary>
+              <ul class="sales-promos">${myGroups.map((g) => `<li><span>${esc(g.name)}<small>${esc(g.brand)} · ${fmtNum(g.fact)} из ${fmtNum(g.plan)} уп.</small>${progressBar(Math.min(100, Math.round((g.pct || 0) * 100)))}</span><b class="pct-${pctCls(g.pct)}">${pct1(g.pct)}</b></li>`).join('')}</ul>
+            </details>`
+          : '<p class="muted">В этом периоде вас нет в файле. Если это ошибка — проверьте, что в <a href="#/profile">личном кабинете</a> ФИО записаны так же, как в отчёте руководства.</p>'}
+        </section>
+      </div>
+      ${S.all ? `<section class="panel" style="margin-top:18px">
+        <div class="section__head"><h2 style="margin:0">Все продавцы</h2>
+          <div class="btn-row"><button class="btn btn--ghost btn--sm" data-sales-csv="sellers">Скачать в Excel</button>${isAdmin() ? `<button class="btn btn--ghost btn--sm" data-sales-delete="${r.period.id}">Удалить период</button>` : ''}</div></div>
+        <div class="table-scroll"><table class="sales-table"><tr><th>Место</th><th>Сотрудник</th><th>Аптека</th><th>План, уп.</th><th>Факт, уп.</th><th>По количеству</th><th>Итог</th></tr>
+        ${S.all.map((x) => `<tr class="${x.isMe ? 'is-me' : ''}"><td>${x.place}</td><td>${esc(x.name)}${x.linked === false ? ' <span class="badge badge--warn" title="Не найден среди сотрудников Академии — не увидит свои продажи в кабинете">не найден</span>' : ''}</td><td>${esc(x.branch)}</td><td>${fmtNum(x.plan)}</td><td>${fmtNum(x.fact)}</td><td>${pct1(x.pctQty)}</td><td><b>${pct1(x.pctAvg)}</b></td></tr>`).join('')}</table></div>
+      </section>` : ''}`;
+  }
+
+  // Аптеки по таблице продаж без плана — сумма продаж сотрудников аптеки
+  function renderPharmSums(box, r) {
+    const medal = ['🥇', '🥈', '🥉'];
+    const metric = r.period.metric;
+    const list = r.pharmBoard || [];
+    const mine = list.find((x) => x.isMine);
+    const val = (x) => (metric === 'amount' ? `${fmtNum(x.amount)} руб.` : `${fmtNum(x.qty)} шт.`);
+    if (!list.length) { box.innerHTML = '<div class="empty">В этом периоде у сотрудников не указаны аптеки — рейтинг аптек собрать не из чего.</div>'; return; }
+    box.innerHTML = `
+      <p class="muted small">Период: <b>${esc(r.period.title)}</b> · аптек: ${list.length} · рейтинг по ${metric === 'amount' ? 'сумме продаж' : 'количеству упаковок'} всех сотрудников аптеки.</p>
+      <div class="sales-grid">
+        <section class="panel">
+          <h2>Топ-10 аптек</h2>
+          <ol class="top-list">${list.slice(0, 10).map((x) => `
+            <li class="${x.isMine ? 'is-me' : ''}">
+              <span class="top-place" aria-label="${x.place} место">${medal[x.place - 1] || x.place}</span>
+              <span class="grow"><b>${esc(x.name)}</b>${x.isMine ? ' <span class="badge badge--done">ваша аптека</span>' : ''}<small>${x.people} ${plural(x.people, 'продавец', 'продавца', 'продавцов')}</small></span>
+              <span class="top-points"><b>${fmtNum(metric === 'amount' ? x.amount : x.qty)}</b><small>${metric === 'amount' ? 'руб.' : 'шт.'}</small></span>
+            </li>`).join('')}</ol>
+        </section>
+        <section class="panel">
+          <h2>Моя аптека</h2>
+          ${mine ? `<p class="sales-me"><span class="sales-me__place">${mine.place}</span><span><b>${esc(mine.name)}</b> — место из ${list.length}<small>${val(mine)} · ${mine.people} ${plural(mine.people, 'продавец', 'продавца', 'продавцов')}</small></span></p>`
+            : `<p class="muted">${r.myBranch ? `Аптеки «${esc(r.myBranch)}» нет в этом периоде.` : 'В вашем профиле не указана аптека.'}</p>`}
+        </section>
+      </div>
+      <section class="panel" style="margin-top:18px">
+        <div class="section__head"><h2 style="margin:0">Все аптеки</h2>${r.viewer ? '<button class="btn btn--ghost btn--sm" data-sales-csv="pharmsum">Скачать в Excel</button>' : ''}</div>
+        <div class="table-scroll"><table class="sales-table"><tr><th>Место</th><th>Аптека</th><th>Продавцов</th><th>Шт.</th><th>Сумма, руб.</th></tr>
+          ${list.map((x) => `<tr class="${x.isMine ? 'is-me' : ''}"><td>${x.place}</td><td>${esc(x.name)}</td><td>${x.people}</td><td>${fmtNum(x.qty)}</td><td>${fmtNum(x.amount)}</td></tr>`).join('')}</table></div>
+      </section>`;
+  }
+
+  // Продавцы по таблице продаж без плана (сумма или количество)
+  function renderPeopleSales(box, r) {
     const metric = r.period.metric;
     const me = r.me;
     box.innerHTML = `
-      ${r.periods.length > 1 ? `<div class="filters" role="group" aria-label="Период">${r.periods.map((p) => `<button class="chip" data-sales-period="${p.id}" aria-pressed="${p.id === r.period.id}">${esc(p.title)}</button>`).join('')}</div>` : ''}
       <p class="muted small">Период: <b>${esc(r.period.title)}</b> · участников: ${r.total} · рейтинг по ${metric === 'amount' ? 'сумме продаж' : 'количеству проданных упаковок'}</p>
       <div class="sales-grid">
         <section class="panel">
-          <h2>Топ-10</h2>
+          <h2>Топ-10 продавцов</h2>
           ${r.top.length ? salesTopHtml(r) : '<p class="muted">Нет данных.</p>'}
           ${me && !r.top.some((x) => x.isMe) ? `<p class="top-me">Ваше место: <b>${me.place}</b> из ${r.total} · ${salesVal(me, metric)}</p>` : ''}
         </section>
@@ -1497,10 +1598,41 @@
       </section>` : ''}
       ${r.all ? `<section class="panel" style="margin-top:18px">
         <div class="section__head"><h2 style="margin:0">Все участники</h2>
-          <div class="btn-row"><button class="btn btn--ghost btn--sm" data-sales-csv>Скачать в Excel</button>${isAdmin() ? `<button class="btn btn--ghost btn--sm" data-sales-delete="${r.period.id}">Удалить период</button>` : ''}</div></div>
+          <div class="btn-row"><button class="btn btn--ghost btn--sm" data-sales-csv="people">Скачать в Excel</button>${isAdmin() ? `<button class="btn btn--ghost btn--sm" data-sales-delete="${r.period.id}">Удалить период</button>` : ''}</div></div>
         <div class="table-scroll"><table class="sales-table"><tr><th>Место</th><th>Сотрудник</th><th>Аптека</th><th>Акций</th><th>Шт.</th><th>Сумма, руб.</th></tr>
-        ${r.all.map((x) => `<tr><td>${x.place}</td><td>${esc(x.name)}${x.linked === false ? ' <span class="badge badge--warn" title="Не найден среди сотрудников Академии — не увидит свои продажи в кабинете">не найден</span>' : ''}</td><td>${esc(x.branch)}</td><td>${x.promoCount}</td><td>${fmtNum(x.qty)}</td><td>${fmtNum(x.amount)}</td></tr>`).join('')}</table></div>
+        ${r.all.map((x) => `<tr class="${x.isMe ? 'is-me' : ''}"><td>${x.place}</td><td>${esc(x.name)}${x.linked === false ? ' <span class="badge badge--warn" title="Не найден среди сотрудников Академии — не увидит свои продажи в кабинете">не найден</span>' : ''}</td><td>${esc(x.branch)}</td><td>${x.promoCount}</td><td>${fmtNum(x.qty)}</td><td>${fmtNum(x.amount)}</td></tr>`).join('')}</table></div>
       </section>` : ''}`;
+  }
+
+  const SALES_TABS = [['study', 'Обучение'], ['sellers', 'Продавцы'], ['pharm', 'Аптеки']];
+  function renderSales() {
+    const box = document.getElementById('sales-body');
+    const r = sales.data;
+    if (!box || !r) return;
+    const kind = r.period ? r.period.kind : null;
+    if (!sales.tab) sales.tab = kind === 'pharmacy' ? 'pharm' : 'sellers';
+    const tab = sales.tab;
+    box.innerHTML = `
+      <div class="filters sales-tabs" role="group" aria-label="Рейтинг">${SALES_TABS.map(([k, l]) => `<button class="chip" data-sales-tab="${k}" aria-pressed="${k === tab}">${l}</button>`).join('')}</div>
+      ${tab !== 'study' && r.periods && r.periods.length > 1 ? `<div class="filters" role="group" aria-label="Период">${r.periods.map((p) => `<button class="chip" data-sales-period="${p.id}" aria-pressed="${p.id === r.period.id}">${esc(p.title)}</button>`).join('')}</div>` : ''}
+      <div id="sales-tab"></div>`;
+    const sub = box.querySelector('#sales-tab');
+    if (tab === 'study') {
+      sub.innerHTML = '<p class="muted">Загружаем рейтинг…</p>';
+      call('top').then((t) => { if (sub.isConnected) sub.innerHTML = topHtml(t, false) || '<div class="empty">Рейтинг появится, когда сотрудники сдадут первые тесты.</div>'; }).catch((e) => { sub.innerHTML = formError(e.message); });
+      return;
+    }
+    if (!r.period) {
+      sub.innerHTML = `<div class="empty">Рейтинг продаж пока не загружен.${isAdmin() ? ' Нажмите «+ Загрузить продажи» и выберите Excel-файл от руководства.' : ' Он появится, когда руководство подведёт итоги акций.'}</div>`;
+      return;
+    }
+    if (tab === 'pharm') {
+      if (kind === 'people') renderPharmSums(sub, r); else renderPharmSales(sub, r);
+      return;
+    }
+    if (kind === 'plan') renderPlanSellers(sub, r);
+    else if (kind === 'people') renderPeopleSales(sub, r);
+    else sub.innerHTML = `<div class="empty">За период «${esc(r.period.title)}» руководство прислало данные только по аптекам — смотрите вкладку «Аптеки». Рейтинг продавцов появится, когда загрузят файл с ФИО сотрудников.</div>`;
   }
 
   // Мои продажи — блок в личном кабинете
@@ -1510,26 +1642,36 @@
     try {
       const r = await call('sales');
       if (!r.period) return;
-      if (r.period.kind === 'pharmacy') {
-        const m = r.mine;
-        if (!m && !r.myBranch) return;
-        box.hidden = false;
-        box.innerHTML = `<h3>Продажи по акциям — моя аптека</h3>
-          <p class="muted small">${esc(r.period.title)}</p>
-          ${m ? `<p class="sales-me"><span class="sales-me__place">${m.place}</span><span><b>${esc(m.short)}</b> — место из ${r.total}<small>итоговый процент ${pct1(m.pctAvg)} · по количеству ${pct1(m.pctQty)}</small></span></p>`
-            : `<p class="muted small">Аптека «${esc(r.myBranch)}» не найдена в отчёте — проверьте название аптеки выше (например, «Аптека №7» или «ФП №55»).</p>`}
-          <a class="btn btn--ghost btn--sm" href="#/sales">Рейтинг аптек</a>`;
-        return;
+      const kind = r.period.kind;
+      let meHtml = '';
+      let phHtml = '';
+      if (kind === 'plan' && r.sellers) {
+        const me = r.sellers.me;
+        meHtml = me ? `<p class="sales-me"><span class="sales-me__place">${me.place}</span><span>место из ${r.sellers.total} среди продавцов<small>итоговый процент ${pct1(me.pctAvg)} · по количеству ${pct1(me.pctQty)} · ${fmtNum(me.fact)} из ${fmtNum(me.plan)} уп.</small></span></p>
+          <ul class="sales-promos">${me.groups.slice().sort((a, b) => (a.pct ?? 9) - (b.pct ?? 9)).slice(0, 5).map((g) => `<li><span>${esc(g.name)}<small>${fmtNum(g.fact)} из ${fmtNum(g.plan)} уп.</small></span><b class="pct-${pctCls(g.pct)}">${pct1(g.pct)}</b></li>`).join('')}</ul>
+          <p class="muted small">Выше — группы, где план выполнен меньше всего.</p>`
+          : '<p class="muted small">В отчёте за этот период вас нет — проверьте, что ФИО в профиле совпадают с отчётом.</p>';
+      } else if (kind === 'people') {
+        const me = r.me;
+        meHtml = me ? `<p class="sales-me"><span class="sales-me__place">${me.place}</span><span>место из ${r.total} среди продавцов<small>${salesVal(me, r.period.metric)}</small></span></p>
+          <ul class="sales-promos">${me.promos.slice(0, 6).map((p) => `<li><span>${esc(p.promo)}</span><b>${salesVal(p, r.period.metric)}</b></li>`).join('')}</ul>`
+          : '<p class="muted small">В отчёте за этот период ваших продаж нет.</p>';
       }
-      const metric = r.period.metric;
-      const me = r.me;
+      if (kind === 'people') {
+        const m = (r.pharmBoard || []).find((x) => x.isMine);
+        if (m) phHtml = `<p class="small">Моя аптека <b>${esc(m.name)}</b>: <b>${m.place}</b> место из ${r.pharmBoard.length} · ${salesVal(m, r.period.metric)}</p>`;
+      } else {
+        const m = r.mine;
+        if (m) phHtml = `<p class="${kind === 'plan' ? 'small' : 'sales-me'}">${kind === 'plan' ? `Моя аптека <b>${esc(m.short)}</b>: <b>${m.place}</b> место из ${r.total} · ${pct1(m.pctAvg)}`
+          : `<span class="sales-me__place">${m.place}</span><span><b>${esc(m.short)}</b> — место из ${r.total}<small>итоговый процент ${pct1(m.pctAvg)} · по количеству ${pct1(m.pctQty)}</small></span>`}</p>`;
+        else if (kind === 'pharmacy' && r.myBranch) phHtml = `<p class="muted small">Аптека «${esc(r.myBranch)}» не найдена в отчёте — проверьте название аптеки выше (например, «Аптека №7» или «ФП №55»).</p>`;
+      }
+      if (!meHtml && !phHtml) return;
       box.hidden = false;
-      box.innerHTML = `<h3>Мои продажи по акциям</h3>
+      box.innerHTML = `<h3>${kind === 'pharmacy' ? 'Продажи по акциям — моя аптека' : 'Мои продажи по акциям'}</h3>
         <p class="muted small">${esc(r.period.title)}</p>
-        ${me ? `<p class="sales-me"><span class="sales-me__place">${me.place}</span><span>место из ${r.total}<small>${salesVal(me, metric)}</small></span></p>
-          <ul class="sales-promos">${me.promos.slice(0, 6).map((p) => `<li><span>${esc(p.promo)}</span><b>${salesVal(p, metric)}</b></li>`).join('')}</ul>`
-        : '<p class="muted small">В отчёте за этот период ваших продаж нет.</p>'}
-        <a class="btn btn--ghost btn--sm" href="#/sales">Весь рейтинг продаж</a>`;
+        ${meHtml}${phHtml}
+        <a class="btn btn--ghost btn--sm" href="#/sales">Все рейтинги</a>`;
     } catch (e) { /* без блока */ }
   }
 
@@ -1604,8 +1746,18 @@
         if (pharm) {
           modal.sales = { wb, pharm };
           if (pharm.title) modal.querySelector('#sales-title').value = pharm.title;
-          const staff = pharm.pharmacies.reduce((a, p) => a + p.pharmacists, 0);
           const brands = new Set(pharm.groups.map((g) => g.brand)).size;
+          if (pharm.people) {
+            const withB = pharm.people.filter((p) => p.branch).length;
+            const phs = new Set(pharm.people.filter((p) => p.branch).map((p) => p.branch.toLowerCase().replace(/\s+/g, ''))).size;
+            box.innerHTML = `<div class="note"><b>Распознан бланк по сотрудникам</b> (${esc(pharm.sheet)}): сотрудников — <b>${pharm.people.length}</b>, товарных групп с планом — <b>${pharm.groups.length}</b>, брендов — <b>${brands}</b>.
+              ${withB ? `Аптека указана в файле у ${withB} (аптек — ${phs}).` : 'Аптеки в файле не указаны — сайт возьмёт аптеку из профиля сотрудника.'}
+              Сайт посчитает выполнение плана каждого продавца, а рейтинг аптек соберёт из их продаж.</div>
+              <details class="small"><summary>Сотрудники из файла</summary><ul>${pharm.people.map((p) => `<li>${esc(p.name)}${p.branch ? ' — ' + esc(p.branch) : ''}</li>`).join('')}</ul></details>
+              <details class="small"><summary>Товарные группы и план на 1 фармацевта</summary><ul>${pharm.groups.map((g) => `<li>${esc(g.brand)} · ${esc(g.name)} — ${fmtNum(g.plan1)} уп.</li>`).join('')}</ul></details>`;
+            return;
+          }
+          const staff = pharm.pharmacies.reduce((a, p) => a + p.pharmacists, 0);
           box.innerHTML = `<div class="note"><b>Распознан бланк по аптекам</b> (${esc(pharm.sheet)}): аптек — <b>${pharm.pharmacies.length}</b>, фармацевтов — <b>${fmtNum(staff)}</b>, товарных групп с планом — <b>${pharm.groups.length}</b>, брендов — <b>${brands}</b>.
             Сайт сам посчитает выполнение плана по каждой аптеке, бренду и позиции. Сотрудники увидят свою аптеку по полю «Аптека» в профиле.</div>
             <details class="small"><summary>Товарные группы и план на 1 фармацевта</summary><ul>${pharm.groups.map((g) => `<li>${esc(g.brand)} · ${esc(g.name)} — ${fmtNum(g.plan1)} уп.</li>`).join('')}</ul></details>`;
@@ -2212,7 +2364,7 @@
             <button class="btn btn--ghost btn--sm" data-admin="sheets">Логины по аптекам</button>
             <button class="btn btn--ghost btn--sm" data-admin="results">Импорт результатов</button>
             <button class="btn btn--ghost btn--sm" data-admin="sales">Импорт продаж</button>` : ''}
-            <a class="btn btn--ghost btn--sm" href="#/sales">Рейтинг продаж</a>
+            <a class="btn btn--ghost btn--sm" href="#/sales">Рейтинги</a>
             <a class="btn btn--ghost btn--sm" href="${API}?action=admin_export">Выгрузить в Excel</a>
           </div>
         </div>
@@ -2805,14 +2957,27 @@
       return;
     }
     if (t.hasAttribute('data-mat-new')) { openMaterialForm(null); return; }
+    if (t.dataset.salesTab) { sales.tab = t.dataset.salesTab; renderSales(); return; }
     if (t.dataset.salesPeriod) { loadSales(Number(t.dataset.salesPeriod)); return; }
-    if (t.hasAttribute('data-sales-csv') && sales.data && sales.data.pharmacies) {
+    if (t.dataset.salesCsv === 'sellers' && sales.data && sales.data.sellers) {
+      const r = sales.data;
+      downloadCsv(`viva-academy-prodavcy-${translit(r.period.title).slice(0, 40)}.csv`, [['Место', 'Сотрудник', 'Аптека', 'План, уп.', 'Факт, уп.', '% по количеству', 'Итоговый %', 'Выполнено групп', 'Найден в Академии', 'Период']]
+        .concat(r.sellers.all.map((x) => [x.place, x.name, x.branch, x.plan, x.fact, pct1(x.pctQty), pct1(x.pctAvg), x.done, x.linked ? 'да' : 'нет', r.period.title])));
+      return;
+    }
+    if (t.dataset.salesCsv === 'pharmsum' && sales.data && sales.data.pharmBoard) {
+      const r = sales.data;
+      downloadCsv(`viva-academy-apteki-${translit(r.period.title).slice(0, 40)}.csv`, [['Место', 'Аптека', 'Продавцов', 'Количество, шт.', 'Сумма, руб.', 'Период']]
+        .concat(r.pharmBoard.map((x) => [x.place, x.name, x.people, x.qty, x.amount, r.period.title])));
+      return;
+    }
+    if (t.dataset.salesCsv === 'pharm' && sales.data && sales.data.pharmacies) {
       const r = sales.data;
       downloadCsv(`viva-academy-apteki-${translit(r.period.title).slice(0, 40)}.csv`, [['Место', 'Аптека', 'Адрес', 'Фармацевтов', 'План, уп.', 'Факт, уп.', '% с перевыполнением', '% по количеству', 'Итоговый %', 'Период']]
         .concat(r.pharmacies.map((x) => [x.place, x.short, x.address, x.pharmacists, x.plan, x.fact, pct1(x.pctOver), pct1(x.pctQty), pct1(x.pctAvg), r.period.title])));
       return;
     }
-    if (t.hasAttribute('data-sales-csv') && sales.data && sales.data.all) {
+    if (t.dataset.salesCsv === 'people' && sales.data && sales.data.all) {
       const r = sales.data;
       downloadCsv(`viva-academy-prodazhi-${translit(r.period.title).slice(0, 40)}.csv`, [['Место', 'Сотрудник', 'Аптека', 'Акций', 'Количество, шт.', 'Сумма, руб.', 'Найден в Академии', 'Период']]
         .concat(r.all.map((x) => [x.place, x.name, x.branch, x.promoCount, x.qty, x.amount, x.linked ? 'да' : 'нет', r.period.title])));
@@ -3036,6 +3201,18 @@
         modal.close();
         toast(r.sent ? `Сохранено. Сообщение отправлено: ${r.sent}` : 'Сохранено');
         await loadEvents();
+        return;
+      }
+      if (formId === 'sales-form' && modal.sales && modal.sales.pharm && modal.sales.pharm.people) {
+        const { people, groups } = modal.sales.pharm;
+        const r = await call('admin_sales_import', { title: f.title.value.trim(), report: { people, groups }, replace: !!f.replace.checked, announce: !!f.announce.checked });
+        modal.innerHTML = `<div class="modal__body"><h2>Рейтинг продаж загружен</h2>
+          <p>Сотрудников: <b>${r.people}</b>, найдено в Академии: <b>${r.matched}</b>. Товарных групп: <b>${r.groups}</b>. Аптек в рейтинге: <b>${r.pharmacies}</b>.</p>
+          ${r.unmatchedCount ? `<p class="note">Не найдены среди сотрудников: <b>${r.unmatchedCount}</b>. Они есть в рейтинге, но не увидят свои продажи в личном кабинете. Проверьте, совпадают ли ФИО в файле и в Академии.</p>
+            <details><summary>Кто не найден</summary><ul class="small">${r.unmatched.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></details>` : '<p class="muted small">Все сотрудники из файла найдены.</p>'}
+          ${r.noBranch ? `<p class="note">У ${r.noBranch} ${plural(r.noBranch, 'сотрудника', 'сотрудников', 'сотрудников')} не удалось определить аптеку — они есть в рейтинге продавцов, но не входят в рейтинг аптек.</p>` : ''}
+          <div class="btn-row" style="margin-top:16px"><a class="btn btn--primary" href="#/sales" data-close>Открыть рейтинг</a><button class="btn btn--ghost" data-close>Закрыть</button></div></div>`;
+        if (location.hash.startsWith('#/sales')) loadSales(r.id);
         return;
       }
       if (formId === 'sales-form' && modal.sales && modal.sales.pharm) {
