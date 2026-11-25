@@ -1306,3 +1306,10 @@ body.logged-in .footer .disclaimer, body.logged-in .footer__copy { color: var(--
 .help-fab:focus-visible { outline: 3px solid var(--accent, #f5a623); outline-offset: 2px; }
 @media (max-width: 1100px) { body.logged-in .help-fab { bottom: calc(76px + env(safe-area-inset-bottom)); right: 12px; width: 42px; height: 42px; } }
 @media print { .help-fab { display: none; } }
+.help-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; }
+.help-card { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.help-card img { width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; border-radius: 12px; border: 1px solid var(--border); }
+.help-card h2 { margin: 0 0 6px; }
+.help-card details { margin-top: 12px; }
+.help-steps { margin: 8px 0 0; padding-left: 1.4em; }
+.help-steps li { margin: 4px 0; }
