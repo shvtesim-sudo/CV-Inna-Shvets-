@@ -2832,6 +2832,7 @@
     else if (page === 'profile') html = viewProfile();
     else if (page === 'materials' && mode === 'server') html = viewMaterials();
     else if (page === 'events' && mode === 'server') html = viewEvents();
+    else if (page === 'help') html = viewHelp();
     else if (page === 'drugs') html = viewDrugs(id === 'check' ? 'check' : 'search');
     else if (page === 'admin' && canViewAdmin()) html = viewAdmin();
     else if (page === 'verify' && id) html = viewVerify(decodeURIComponent(id));
@@ -3370,7 +3371,7 @@
   });
 
   /* ───────────── Инструкция по сайту: слайды с голосом, при первом заходе и по кнопке «?» ───────────── */
-  const GUIDE = [
+  const GUIDE_STAFF = [
     { t: "Добро пожаловать в ВИВААКАДЕМИЮ", x: "Учебная платформа для сотрудников аптек Вивафарм: курсы, тесты, сертификаты, материалы и рейтинги. За пару минут покажем, как всем этим пользоваться." },
     { t: "Вход в личный кабинет", x: "Логин и пароль выдаёт руководитель. Введите их и нажмите «Войти». Если руководитель дал код приглашения — нажмите «Зарегистрироваться» и создайте вход сами. Забыли пароль? Руководитель задаст новый." },
     { t: "Главная страница", x: "После входа видно ваш прогресс, место в рейтинге, ближайшее мероприятие и новые материалы. Разделы сайта — в меню слева, на телефоне — внизу экрана." },
@@ -3385,26 +3386,46 @@
     { t: "Личный кабинет", x: "Ваш прогресс, сертификаты и продажи по акциям. Проверьте ФИО и аптеку (например, «Аптека №7») — по ним сайт находит ваши продажи. Здесь же можно сменить пароль." },
     { t: "На телефоне и помощь", x: "Сайт можно установить на телефон как приложение — подсказка есть на главной. А эта инструкция всегда под кнопкой «?» в правом нижнем углу. Успешного обучения!" }
   ];
-  const guideSrc = (i, ext) => `guide/s${String(i + 1).padStart(2, '0')}.${ext}?v=${window.APP_VERSION || ''}`;
-  const guide = { i: 0, voice: false, audio: null };
+  const GUIDE_ADMIN = [
+    { t: "Кабинет руководителя", x: "В разделе «Руководителю» — вся картина обучения: сотрудники, кто заходил за неделю, средний прогресс и выданные сертификаты. Руководитель видит всё и выгружает отчёт, администратор ещё и вносит изменения." },
+    { t: "Сотрудники и их прогресс", x: "Ищите по ФИО или логину, фильтруйте по аптеке и статусу: не начинали, в процессе, прошли всё, заблокированы. Нажмите на имя — откроются пройденные уроки, результаты тестов и сертификаты." },
+    { t: "Аптеки и топ-10", x: "Справа — топ-10 фармацевтов по результатам тестов и прогресс каждой аптеки. Нажмите на аптеку, чтобы оставить в таблице только её сотрудников." },
+    { t: "Новый сотрудник", x: "«+ Сотрудник»: ФИО, логин, аптека (например, «Аптека №7»), должность и роль. Пароль — кнопкой «Сгенерировать». Сотрудник уволился — снимите галочку «Доступ разрешён»: вход закроется, история сохранится." },
+    { t: "Импорт списка и логины по аптекам", x: "«Импорт списка» добавляет сразу многих: ФИО; логин; аптека; должность; пароль. Сразу после импорта скачайте логины и пароли и распечатайте листы для каждой аптеки кнопкой «Печать по аптекам»." },
+    { t: "Самостоятельная регистрация", x: "Задайте код приглашения — сотрудники смогут зарегистрироваться сами по ссылке «…#/register». Пустое поле — регистрация выключена." },
+    { t: "Мероприятия и записи", x: "В «Афише» — «+ Мероприятие»: тема, спикер, дата, место или ссылка, число мест. Кто записался — видно в кабинете; список выгружается в Excel с колонками «Подпись» и «Мероприятие» для печати." },
+    { t: "Материалы", x: "«+ Загрузить презентацию»: PDF, PowerPoint или видео, либо ссылка на Google Диск или YouTube. PowerPoint сайт сам превращает в PDF, чтобы презентация открывалась на любом телефоне." },
+    { t: "Telegram-бот", x: "Подключите бота в кабинете руководителя: токен выдаёт @BotFather. Бот сообщает о новых тестах и мероприятиях и напоминает о записи. При публикации отметьте «Сообщить всем в Telegram»." },
+    { t: "Рейтинг продаж", x: "«Рейтинги» → «+ Загрузить продажи» и выберите бланк руководства. Сайт сам распознает аптеки или сотрудников, посчитает выполнение плана и покажет, кого не нашёл. Загрузка с тем же периодом заменяет данные." },
+    { t: "Отчёт в Excel и демо-доступ", x: "«Выгрузить в Excel» — полный отчёт по сотрудникам. Чтобы показать сайт посторонним, создайте пользователя с ролью «Демо»: интерфейс руководителя, но ФИО скрыты и изменить ничего нельзя." },
+    { t: "Где найти инструкции", x: "Обе инструкции — для фармацевтов и для руководителей — в меню «Инструкция». Отправьте сотрудникам видео для фармацевтов: так они быстрее освоятся." }
+  ];
+  // Две инструкции: для фармацевтов (guide/) и для руководителей (guide/admin/)
+  const GUIDES = {
+    staff: { slides: GUIDE_STAFF, dir: 'guide/', video: 'guide/vivaacademy-instrukciya.mp4', label: 'для фармацевтов', done: 'Начать обучение', minutes: 4 },
+    admin: { slides: GUIDE_ADMIN, dir: 'guide/admin/', video: 'guide/admin/vivaacademy-rukovoditelyu.mp4', label: 'для руководителей', done: 'Готово', minutes: 4 }
+  };
+  const guideSrc = (i, ext) => `${GUIDES[guide.deck].dir}s${String(i + 1).padStart(2, '0')}.${ext}?v=${window.APP_VERSION || ''}`;
+  const guide = { i: 0, voice: false, audio: null, deck: 'staff' };
+  const GUIDE = () => GUIDES[guide.deck].slides;
   function guideRender() {
-    const s = GUIDE[guide.i];
-    const last = guide.i === GUIDE.length - 1;
+    const s = GUIDE()[guide.i];
+    const last = guide.i === GUIDE().length - 1;
     modal.innerHTML = `
-      <div class="modal__body guide" role="group" aria-roledescription="слайд" aria-label="Инструкция по сайту">
+      <div class="modal__body guide" role="group" aria-roledescription="слайд" aria-label="Инструкция ${GUIDES[guide.deck].label}">
         <div class="guide__media"><img src="${guideSrc(guide.i, 'jpg')}" alt="${esc(s.t)} — экран сайта" width="1440" height="900"></div>
         <div class="guide__text">
-          <small class="muted">Шаг ${guide.i + 1} из ${GUIDE.length}</small>
+          <small class="muted">Инструкция ${GUIDES[guide.deck].label} · шаг ${guide.i + 1} из ${GUIDE().length}</small>
           <h2>${esc(s.t)}</h2>
           <p>${esc(s.x)}</p>
         </div>
-        <div class="guide__dots" aria-hidden="true">${GUIDE.map((_, k) => `<button type="button" tabindex="-1" class="${k === guide.i ? 'is-on' : ''}" data-guide-go="${k}"></button>`).join('')}</div>
+        <div class="guide__dots" aria-hidden="true">${GUIDE().map((_, k) => `<button type="button" tabindex="-1" class="${k === guide.i ? 'is-on' : ''}" data-guide-go="${k}"></button>`).join('')}</div>
         <div class="guide__nav">
           <button type="button" class="btn btn--ghost btn--sm" data-guide-prev ${guide.i ? '' : 'disabled'}>← Назад</button>
           <button type="button" class="btn btn--ghost btn--sm guide__voice" data-guide-voice aria-pressed="${guide.voice}">${guide.voice ? '❚❚ Пауза' : '🔊 Слушать с голосом'}</button>
-          ${last ? '<button type="button" class="btn btn--primary btn--sm" data-guide-close autofocus>Начать обучение</button>' : '<button type="button" class="btn btn--primary btn--sm" data-guide-next autofocus>Далее →</button>'}
+          ${last ? `<button type="button" class="btn btn--primary btn--sm" data-guide-close autofocus>${GUIDES[guide.deck].done}</button>` : '<button type="button" class="btn btn--primary btn--sm" data-guide-next autofocus>Далее →</button>'}
         </div>
-        <p class="guide__foot small"><a href="guide/vivaacademy-instrukciya.mp4" target="_blank" rel="noopener">Видеоинструкция целиком (mp4)</a><button type="button" class="link-btn" data-guide-close>Закрыть</button></p>
+        <p class="guide__foot small"><a href="${GUIDES[guide.deck].video}" target="_blank" rel="noopener">Видеоинструкция целиком (mp4)</a><button type="button" class="link-btn" data-guide-close>Закрыть</button></p>
       </div>`;
     const f = modal.querySelector('[autofocus]'); if (f && modal.open) f.focus({ preventScroll: true });
     if (guide.voice) guidePlay();
@@ -3414,15 +3435,16 @@
       guide.audio = new Audio();
       guide.audio.addEventListener('ended', () => {
         if (!guide.voice) return;
-        if (guide.i < GUIDE.length - 1) { guide.i += 1; guideRender(); } else { guide.voice = false; guideRender(); }
+        if (guide.i < GUIDE().length - 1) { guide.i += 1; guideRender(); } else { guide.voice = false; guideRender(); }
       });
     }
     guide.audio.src = guideSrc(guide.i, 'mp3');
     guide.audio.play().catch(() => { guide.voice = false; const b = modal.querySelector('[data-guide-voice]'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = '🔊 Слушать с голосом'; } });
   }
   function guideStop() { guide.voice = false; if (guide.audio) guide.audio.pause(); }
-  function openGuide(start) {
+  function openGuide(start, deck) {
     guideStop();
+    guide.deck = GUIDES[deck] ? deck : 'staff';
     guide.i = start || 0;
     guideRender();
     modal.classList.add('modal--guide');
@@ -3430,10 +3452,33 @@
     if (!modal.open) modal.showModal();
     try { localStorage.setItem('viva-guide-seen', '1'); } catch (e) { /* нет хранилища */ }
   }
+  // Страница «Инструкция»: презентация для фармацевтов, для руководителей — вторая
+  function viewHelp() {
+    const card = (k, title, text) => {
+      const g = GUIDES[k];
+      return `<section class="panel help-card">
+        <img src="${g.dir}s01.jpg?v=${window.APP_VERSION || ''}" alt="" width="1440" height="900" loading="lazy">
+        <div><h2>${title}</h2><p class="muted">${text}</p>
+          <div class="btn-row"><button class="btn btn--primary btn--sm" data-guide-open="${k}">▶ Смотреть презентацию</button><a class="btn btn--ghost btn--sm" href="${g.video}" target="_blank" rel="noopener">Видео (mp4)</a></div>
+          <details class="small"><summary>${g.slides.length} шагов · около ${g.minutes} минут с голосом</summary><ol class="help-steps">${g.slides.map((s, i) => `<li><button class="link-btn" data-guide-open="${k}" data-guide-start="${i}">${esc(s.t)}</button></li>`).join('')}</ol></details>
+        </div></section>`;
+    };
+    return `
+      <div class="wrap">
+        <div class="crumbs"><a href="#/">Главная</a> / Инструкция</div>
+        <div class="section__head"><div><h1 style="margin:0">Как пользоваться сайтом</h1>
+          <p>Короткие презентации с экранами сайта и озвучкой. Кнопка «Слушать с голосом» листает слайды сама. Инструкция для фармацевтов всегда открывается и по кнопке «?» в правом нижнем углу.</p></div></div>
+        <div class="help-grid">
+          ${card('staff', 'Для фармацевтов', 'Вход в личный кабинет, курсы и тесты, сертификаты, «Ортопедия», материалы, справочник МНН, афиша, рейтинги и личный кабинет.')}
+          ${canViewAdmin() ? card('admin', 'Для руководителей', 'Кабинет руководителя: прогресс сотрудников и аптек, добавление и импорт сотрудников, логины по аптекам, мероприятия, материалы, Telegram-бот, загрузка рейтинга продаж, отчёт в Excel и демо-доступ.') : ''}
+        </div>
+      </div>`;
+  }
+
   modal.addEventListener('click', (e) => {
     const t = e.target.closest('button');
     if (!t || !modal.classList.contains('modal--guide')) return;
-    const go = (k) => { if (guide.audio) guide.audio.pause(); guide.i = Math.max(0, Math.min(GUIDE.length - 1, k)); guideRender(); };
+    const go = (k) => { if (guide.audio) guide.audio.pause(); guide.i = Math.max(0, Math.min(GUIDE().length - 1, k)); guideRender(); };
     if (t.hasAttribute('data-guide-next')) go(guide.i + 1);
     else if (t.hasAttribute('data-guide-prev')) go(guide.i - 1);
     else if (t.dataset.guideGo) go(Number(t.dataset.guideGo));
@@ -3442,10 +3487,10 @@
   });
   document.addEventListener('keydown', (e) => {
     if (!modal.open || !modal.classList.contains('modal--guide') || e.target.closest('input, textarea')) return;
-    if (e.key === 'ArrowRight' && guide.i < GUIDE.length - 1) { e.preventDefault(); modal.querySelector('[data-guide-next]').click(); }
+    if (e.key === 'ArrowRight' && guide.i < GUIDE().length - 1) { e.preventDefault(); modal.querySelector('[data-guide-next]').click(); }
     if (e.key === 'ArrowLeft' && guide.i > 0) { e.preventDefault(); modal.querySelector('[data-guide-prev]').click(); }
   });
-  document.addEventListener('click', (e) => { if (e.target.closest('[data-guide-open]')) { e.preventDefault(); openGuide(0); } });
+  document.addEventListener('click', (e) => { const g = e.target.closest('[data-guide-open]'); if (g) { e.preventDefault(); openGuide(Number(g.dataset.guideStart) || 0, g.dataset.guideOpen || 'staff'); } });
   // Первый заход в этом браузере — показываем инструкцию сами (не поверх сертификата и проверки подлинности)
   function maybeFirstGuide() {
     let seen = false;
