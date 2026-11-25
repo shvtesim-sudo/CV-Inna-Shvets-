@@ -3369,8 +3369,94 @@
     try { localStorage.setItem('viva-theme', root.dataset.theme); } catch (e) { /* ignore */ }
   });
 
+  /* ───────────── Инструкция по сайту: слайды с голосом, при первом заходе и по кнопке «?» ───────────── */
+  const GUIDE = [
+    { t: "Добро пожаловать в ВИВААКАДЕМИЮ", x: "Учебная платформа для сотрудников аптек Вивафарм: курсы, тесты, сертификаты, материалы и рейтинги. За пару минут покажем, как всем этим пользоваться." },
+    { t: "Вход в личный кабинет", x: "Логин и пароль выдаёт руководитель. Введите их и нажмите «Войти». Если руководитель дал код приглашения — нажмите «Зарегистрироваться» и создайте вход сами. Забыли пароль? Руководитель задаст новый." },
+    { t: "Главная страница", x: "После входа видно ваш прогресс, место в рейтинге, ближайшее мероприятие и новые материалы. Разделы сайта — в меню слева, на телефоне — внизу экрана." },
+    { t: "Курсы и уроки", x: "В «Курсах» — все учебные программы по направлениям. Откройте курс и проходите уроки по порядку: пройденные отмечаются сами." },
+    { t: "Итоговый тест", x: "В конце курса — тест. Чтобы сдать, нужно от 80% правильных ответов. Не получилось — повторите уроки и пройдите заново, количество попыток не ограничено." },
+    { t: "Сертификат", x: "За сданный тест — именной сертификат. Его можно распечатать или сохранить в PDF кнопкой «Печать / Сохранить в PDF». У сертификата есть номер для проверки подлинности." },
+    { t: "Ортопедия", x: "Отдельный раздел по продукции Крейт: пять блоков с тестами, конспекты видео, презентации и подробный блок о компрессионном трикотаже." },
+    { t: "Материалы", x: "Презентации, инструкции и видео от руководства. Всё открывается прямо на сайте — ничего не нужно скачивать." },
+    { t: "Справочник МНН", x: "Введите действующее вещество или название препарата — покажем, что о нём сказано в курсах, какие препараты с ним есть в каталоге Вивафарм, и откроем инструкцию. Во второй вкладке — проверка взаимодействий." },
+    { t: "Афиша и Telegram", x: "В «Афише» — тренинги и встречи: нажмите «Записаться». Подключите Telegram в личном кабинете — бот напомнит о мероприятии и сообщит о новых тестах." },
+    { t: "Рейтинги", x: "Три вкладки: «Обучение» — по результатам тестов, «Продавцы» и «Аптеки» — по выполнению плана акций. Рейтинг продаж обновляется два раза в месяц." },
+    { t: "Личный кабинет", x: "Ваш прогресс, сертификаты и продажи по акциям. Проверьте ФИО и аптеку (например, «Аптека №7») — по ним сайт находит ваши продажи. Здесь же можно сменить пароль." },
+    { t: "На телефоне и помощь", x: "Сайт можно установить на телефон как приложение — подсказка есть на главной. А эта инструкция всегда под кнопкой «?» в правом нижнем углу. Успешного обучения!" }
+  ];
+  const guideSrc = (i, ext) => `guide/s${String(i + 1).padStart(2, '0')}.${ext}?v=${window.APP_VERSION || ''}`;
+  const guide = { i: 0, voice: false, audio: null };
+  function guideRender() {
+    const s = GUIDE[guide.i];
+    const last = guide.i === GUIDE.length - 1;
+    modal.innerHTML = `
+      <div class="modal__body guide" role="group" aria-roledescription="слайд" aria-label="Инструкция по сайту">
+        <div class="guide__media"><img src="${guideSrc(guide.i, 'jpg')}" alt="${esc(s.t)} — экран сайта" width="1440" height="900"></div>
+        <div class="guide__text">
+          <small class="muted">Шаг ${guide.i + 1} из ${GUIDE.length}</small>
+          <h2>${esc(s.t)}</h2>
+          <p>${esc(s.x)}</p>
+        </div>
+        <div class="guide__dots" aria-hidden="true">${GUIDE.map((_, k) => `<button type="button" tabindex="-1" class="${k === guide.i ? 'is-on' : ''}" data-guide-go="${k}"></button>`).join('')}</div>
+        <div class="guide__nav">
+          <button type="button" class="btn btn--ghost btn--sm" data-guide-prev ${guide.i ? '' : 'disabled'}>← Назад</button>
+          <button type="button" class="btn btn--ghost btn--sm guide__voice" data-guide-voice aria-pressed="${guide.voice}">${guide.voice ? '❚❚ Пауза' : '🔊 Слушать с голосом'}</button>
+          ${last ? '<button type="button" class="btn btn--primary btn--sm" data-guide-close autofocus>Начать обучение</button>' : '<button type="button" class="btn btn--primary btn--sm" data-guide-next autofocus>Далее →</button>'}
+        </div>
+        <p class="guide__foot small"><a href="guide/vivaacademy-instrukciya.mp4" target="_blank" rel="noopener">Видеоинструкция целиком (mp4)</a><button type="button" class="link-btn" data-guide-close>Закрыть</button></p>
+      </div>`;
+    const f = modal.querySelector('[autofocus]'); if (f && modal.open) f.focus({ preventScroll: true });
+    if (guide.voice) guidePlay();
+  }
+  function guidePlay() {
+    if (!guide.audio) {
+      guide.audio = new Audio();
+      guide.audio.addEventListener('ended', () => {
+        if (!guide.voice) return;
+        if (guide.i < GUIDE.length - 1) { guide.i += 1; guideRender(); } else { guide.voice = false; guideRender(); }
+      });
+    }
+    guide.audio.src = guideSrc(guide.i, 'mp3');
+    guide.audio.play().catch(() => { guide.voice = false; const b = modal.querySelector('[data-guide-voice]'); if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = '🔊 Слушать с голосом'; } });
+  }
+  function guideStop() { guide.voice = false; if (guide.audio) guide.audio.pause(); }
+  function openGuide(start) {
+    guideStop();
+    guide.i = start || 0;
+    guideRender();
+    modal.classList.add('modal--guide');
+    modal.addEventListener('close', () => { guideStop(); modal.classList.remove('modal--guide'); }, { once: true });
+    if (!modal.open) modal.showModal();
+    try { localStorage.setItem('viva-guide-seen', '1'); } catch (e) { /* нет хранилища */ }
+  }
+  modal.addEventListener('click', (e) => {
+    const t = e.target.closest('button');
+    if (!t || !modal.classList.contains('modal--guide')) return;
+    const go = (k) => { if (guide.audio) guide.audio.pause(); guide.i = Math.max(0, Math.min(GUIDE.length - 1, k)); guideRender(); };
+    if (t.hasAttribute('data-guide-next')) go(guide.i + 1);
+    else if (t.hasAttribute('data-guide-prev')) go(guide.i - 1);
+    else if (t.dataset.guideGo) go(Number(t.dataset.guideGo));
+    else if (t.hasAttribute('data-guide-voice')) { if (guide.voice) { guideStop(); guideRender(); } else { guide.voice = true; guideRender(); } }
+    else if (t.hasAttribute('data-guide-close')) modal.close();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (!modal.open || !modal.classList.contains('modal--guide') || e.target.closest('input, textarea')) return;
+    if (e.key === 'ArrowRight' && guide.i < GUIDE.length - 1) { e.preventDefault(); modal.querySelector('[data-guide-next]').click(); }
+    if (e.key === 'ArrowLeft' && guide.i > 0) { e.preventDefault(); modal.querySelector('[data-guide-prev]').click(); }
+  });
+  document.addEventListener('click', (e) => { if (e.target.closest('[data-guide-open]')) { e.preventDefault(); openGuide(0); } });
+  // Первый заход в этом браузере — показываем инструкцию сами (не поверх сертификата и проверки подлинности)
+  function maybeFirstGuide() {
+    let seen = false;
+    try { seen = !!localStorage.getItem('viva-guide-seen'); } catch (e) { seen = true; }
+    const page = location.hash.replace(/^#\/?/, '').split('/')[0];
+    if (seen || modal.open || ['verify', 'certificate', 'xcert'].includes(page) || mode === 'error') return;
+    setTimeout(() => { if (!modal.open) openGuide(0); }, 700);
+  }
+
   window.addEventListener('hashchange', route);
-  boot().then(route);
+  boot().then(route).then(maybeFirstGuide);
   // Установка на телефон как приложение (нужен service worker; он ничего не кэширует)
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
