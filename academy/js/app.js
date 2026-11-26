@@ -1350,17 +1350,20 @@
   function parseBlank(wb) {
     for (const sn of wb.SheetNames) {
       const rows = sheetRows(wb, sn);
-      const hi = rows.findIndex((r) => /^бренд$/i.test(cellTxt(r[0])));
+      // Строка заголовков: «Бренд | План на 1 фарм | аптеки или ФИО…» (в бланке с процентами колонка A пустая)
+      const hi = rows.findIndex((r) => /^бренд$/i.test(cellTxt(r[0]))
+        || (!cellTxt(r[0]) && /план|на\s*1\s*фарм/i.test(cellTxt(r[1])) && r.slice(2).filter((v) => !isEmpty(v)).length >= 2));
       if (hi < 0) continue;
-      if (!/план/i.test(cellTxt(rows[hi][1]))) return { noPlan: true }; // выгрузка продаж из 1С без плана
+      if (!/план|на\s*1\s*фарм/i.test(cellTxt(rows[hi][1]))) return { noPlan: true }; // выгрузка продаж из 1С без плана
       const cols = [];
-      rows[hi].forEach((v, j) => { if (j >= 2 && !isEmpty(v) && !/%|выполнен|^итог|^всего/i.test(cellTxt(v))) cols.push(j); });
+      rows[hi].forEach((v, j) => { if (j >= 2 && !isEmpty(v) && !/%|^процент|выполнен|^итог|^всего/i.test(cellTxt(v))) cols.push(j); });
       if (!cols.length) continue;
       // Служебные строки под заголовком: «Номенклатура» (число фармацевтов), «Аптека» (аптека сотрудника)
       let start = hi + 1;
       let counts = null;
       let branchRow = null;
-      while (rows[start] && /^(номенклатура|аптека|аптеки|подразделение|филиал|точка)/i.test(cellTxt(rows[start][0]))) {
+      const isTextRow = (r) => !cellTxt(r[0]) && cols.some((j) => !isEmpty(r[j])) && cols.every((j) => isEmpty(r[j]) || typeof r[j] !== 'number');
+      while (rows[start] && (/^(номенклатура|аптека|аптеки|подразделение|филиал|точка)/i.test(cellTxt(rows[start][0])) || isTextRow(rows[start]))) {
         if (/^номенклатура/i.test(cellTxt(rows[start][0]))) counts = rows[start]; else branchRow = rows[start];
         start += 1;
       }
@@ -1384,7 +1387,11 @@
           if (cur) { if (cur.members > 1) cur.name += ' — все формы'; cur.fact = vals; close(); }
           continue;
         }
-        if (/^(итог|всего)/i.test(name)) { close(); continue; }
+        if (/^(итог|всего)/i.test(name)) { // «Итого: Канефрон» — итог группы «все формы»
+          if (cur) { if (cur.members > 1) cur.name += ' — все формы'; cur.fact = vals; }
+          close();
+          continue;
+        }
         const plan = cellTxt(r[1]);
         if (plan) {
           close();
@@ -1399,6 +1406,12 @@
       close();
       if (!groups.length) continue;
       const out = { sheet: sn, groups: groups.filter((g) => g.plan1 > 0) };
+      // «Продажи на 25.11.26» → период «1–25 ноября 2026»
+      const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+      for (const r of rows.slice(0, hi)) {
+        const m = cellTxt(r[0]).match(/продаж\S*\s+(?:на|по)\s+(\d{1,2})\.(\d{1,2})\.(\d{2,4})/i);
+        if (m && +m[2] >= 1 && +m[2] <= 12) { out.title = `1–${+m[1]} ${MONTHS[+m[2] - 1]} ${m[3].length === 2 ? '20' + m[3] : m[3]}`; break; }
+      }
       if (!isPeople) {
         out.pharmacies = cols.map((j, k) => ({ name: heads[k], pharmacists: counts ? toNum(counts[j]) : 1 }));
         return out;
@@ -1513,7 +1526,7 @@
           <ol class="top-list">${S.top.map((x) => `
             <li class="${x.isMe ? 'is-me' : ''}">
               <span class="top-place" aria-label="${x.place} место">${medal[x.place - 1] || x.place}</span>
-              <span class="grow"><b>${esc(x.name)}</b>${x.isMe ? ' <span class="badge badge--done">это вы</span>' : ''}<small>${esc(x.branch || '')}${x.branch ? ' · ' : ''}по количеству ${pct1(x.pctQty)} · ${fmtNum(x.fact)} из ${fmtNum(x.plan)} уп.</small></span>
+              <span class="grow"><b>${esc(x.name)}</b>${x.isMe ? ' <span class="badge badge--done">это вы</span>' : ''}<small>${esc((x.branch || '').split(',')[0])}${x.branch ? ' · ' : ''}по количеству ${pct1(x.pctQty)} · ${fmtNum(x.fact)} из ${fmtNum(x.plan)} уп.</small></span>
               <span class="top-points"><b>${pct1(x.pctAvg)}</b><small>выполнение</small></span>
             </li>`).join('')}</ol>
           ${me && me.place > 10 ? `<p class="top-me">Ваше место: <b>${me.place}</b> из ${S.total} · ${pct1(me.pctAvg)}</p>` : ''}
